@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_clean_two_inputs;
+module tb_systolic_loading;
 
     parameter W      = 8;
     parameter ACC_W  = 16;
@@ -22,8 +22,10 @@ module tb_clean_two_inputs;
     wire signed [ACC_W-1:0] acc_out_0, acc_out_1, acc_out_2, acc_out_3;
     wire [N_MACS-1:0] valid_out;
 
-    reg signed [ACC_W-1:0] first_out;
-    reg signed [ACC_W-1:0] second_out;
+    reg signed [ACC_W-1:0] first_out_1;
+    reg signed [ACC_W-1:0] second_out_1;
+    reg signed [ACC_W-1:0] first_out_2;
+    reg signed [ACC_W-1:0] second_out_2;
 
     // clock
     initial begin
@@ -65,7 +67,7 @@ module tb_clean_two_inputs;
         rst = 1;
         start = 0;
         a_in = 0;
-        w_0 = 2; w_1 = 0; w_2 = 0; w_3 = 0;
+        w_0 = 2; w_1 = 3; w_2 = 0; w_3 = 0;
 
         #(CLK_PERIOD*3);
         rst = 0;
@@ -76,7 +78,10 @@ module tb_clean_two_inputs;
         @(negedge clk) start = 0;
 
         @(posedge valid_out[0]);
-        first_out = acc_out_0;
+        first_out_1 = acc_out_0;
+        @(posedge valid_out[1]);
+        first_out_2 = acc_out_1;
+
 
         // ---------- second input ----------
         a_in = 5;
@@ -84,13 +89,22 @@ module tb_clean_two_inputs;
         @(negedge clk) start = 0;
 
         @(posedge valid_out[0]);
-        second_out = acc_out_0;
+        second_out_1 = acc_out_0;
+        @(posedge valid_out[1]);
+        second_out_2 = acc_out_1;   
 
         // ---------- output ----------
-        $display("First : %0d", first_out);
-        $display("Second: %0d", second_out);
+        $display("First : %0d", first_out_1);
+        $display("Second: %0d", second_out_1);
+        
 
-        $stop;
+
+        #(CLK_PERIOD*5);
+
+        $display("First : %0d", first_out_2);
+        $display("Second: %0d", second_out_2);
+        $finish;
+
     end
 
 endmodule
