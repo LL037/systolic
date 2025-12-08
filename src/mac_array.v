@@ -15,28 +15,28 @@ module mac_array #(
     input  wire [N_MACS-1:0]       clear,      
     
     // Single activation input (flows through the array)
-    input  wire signed [W-1:0]     a_in,
+    input  wire signed [ACC_W-1:0]     a_in,
     
     // Weight inputs for each MAC
-    input  wire signed [W-1:0]     w_0,        // Weight for MAC 0
-    input  wire signed [W-1:0]     w_1,        // Weight for MAC 1
-    input  wire signed [W-1:0]     w_2,        // Weight for MAC 2
-    input  wire signed [W-1:0]     w_3,        // Weight for MAC 3
+    input  wire signed [ACC_W-1:0]     w_0,        // Weight for MAC 0
+    input  wire signed [ACC_W-1:0]     w_1,        // Weight for MAC 1
+    input  wire signed [ACC_W-1:0]     w_2,        // Weight for MAC 2
+    input  wire signed [ACC_W-1:0]     w_3,        // Weight for MAC 3
     
     // Final outputs
     output wire signed [ACC_W-1:0] acc_out_0,
     output wire signed [ACC_W-1:0] acc_out_1,
     output wire signed [ACC_W-1:0] acc_out_2,
     output wire signed [ACC_W-1:0] acc_out_3,
-    output wire [N_MACS-1:0]       valid_out,
+    output wire [N_MACS-1:0]       valid_out
 );
 
-    wire signed [W-1:0]     a_out_0_1;
-    wire signed [W-1:0]     a_out_0_1_1;
+    wire signed [ACC_W-1:0]     a_out_0_1;
+    wire signed [ACC_W-1:0]     a_out_0_1_1;
 
-    wire signed [W-1:0]     a_out_1_0;  
-    wire signed [W-1:0]     a_out_2_3;  
-    wire signed [W-1:0]     a_out_3_2;  
+    wire signed [ACC_W-1:0]     a_out_1_0;  
+    wire signed [ACC_W-1:0]     a_out_2_3;  
+    wire signed [ACC_W-1:0]     a_out_3_2;  
 
 
     // MAC 0 (top-left)
@@ -79,7 +79,7 @@ module mac_array #(
         .acc_out(acc_out_1),
         .valid_out(valid_out[1]),
         .a_out_0(),
-        .a_out_1()
+        .a_out_1(),
         .a_out_2(a_out_1_0)        
     );
 
@@ -101,7 +101,7 @@ module mac_array #(
         .acc_out(acc_out_2),
         .valid_out(valid_out[2]),
         .a_out_0(),
-        .a_out_1(a_out_2_3) 
+        .a_out_1(a_out_2_3), 
         .a_out_2()        
        
     );
