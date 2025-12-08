@@ -20,8 +20,8 @@ module tb_systolic_loading;
     wire fsm_busy;
 
     // MAC Array 数据信号
-    reg signed [W-1:0] a_in;
-    reg signed [W-1:0] w_0, w_1, w_2, w_3;
+    reg signed [ACC_W-1:0] a_in;
+    reg signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
     
     // 没用到的控制信号 (全部置 0)
     reg [3:0] valid_in_1_dummy;
@@ -32,9 +32,6 @@ module tb_systolic_loading;
     wire signed [ACC_W-1:0] acc_out_0, acc_out_1, acc_out_2, acc_out_3;
     wire [N_MACS-1:0] valid_out;
 
-    // ============================================================
-    // 3. 模块实例化 (DUT: Device Under Test)
-    // ============================================================
 
     // 实例化 FSM
     loading_fsm u_fsm (
@@ -103,19 +100,17 @@ module tb_systolic_loading;
         // 预期结果：MAC0 = Input * 2, MAC1 = Input * 3
         w_0 = 8'd2;
         w_1 = 8'd3;
-        w_2 = 8'd4; // 虽然后面两个此时不用，但也配上
-        w_3 = 8'd5;
+        w_2 = 8'd4; // unused
+        w_3 = 8'd5; // unused
         
         $display("Wait for Weights to settle...");
         #(CLK_PERIOD);
 
         // 3. 启动 Loading Phase (Input = 10)
-        // --------------------------------------------------------
         $display("=== Triggering Loading Phase ===");
         
         // 设置输入数据 a_in = 10
-        // 这个数据会像波浪一样流过 MAC0 -> MAC1
-        a_in = 8'd10; 
+        a_in = 16'd10; 
 
         // 发送 Start 脉冲给 FSM
         @(negedge clk); 
@@ -128,7 +123,7 @@ module tb_systolic_loading;
         
         wait(fsm_busy == 0); // 等待 FSM 忙完
         
-        #(CLK_PERIOD * 5); // 再多跑几个周期看结果
+        #(CLK_PERIOD * 5); 
 
         // 5. 打印结果检查
         $display("=== Results Check ===");
