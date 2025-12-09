@@ -46,6 +46,7 @@ module mac_array #(
     ) mac_0 (
         .clk(clk),
         .rst(rst),
+        .acc_sel(3'b000),
         .valid_in_0(valid_in_0[0]),
         .valid_in_1(valid_in_1[0]),
         .valid_in_2(valid_in_2[0]),
@@ -68,6 +69,7 @@ module mac_array #(
     ) mac_1 (
         .clk(clk),
         .rst(rst),
+        .acc_sel(3'b000),
         .valid_in_0(valid_in_0[1]),
         .valid_in_1(valid_in_1[1]),
         .valid_in_2(valid_in_2[1]),
@@ -90,6 +92,7 @@ module mac_array #(
     ) mac_2 (
         .clk(clk),
         .rst(rst),
+        .acc_sel(3'b000),
         .valid_in_0(valid_in_0[2]),
         .valid_in_1(valid_in_1[2]),
         .valid_in_2(valid_in_2[2]),
@@ -112,6 +115,7 @@ module mac_array #(
     ) mac_3 (
         .clk(clk),
         .rst(rst),
+        .acc_sel(3'b000),
         .valid_in_0(valid_in_0[3]),
         .valid_in_1(valid_in_1[3]),
         .valid_in_2(valid_in_2[3]),

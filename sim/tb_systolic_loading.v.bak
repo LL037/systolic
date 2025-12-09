@@ -85,7 +85,6 @@ module tb_systolic_loading;
     initial begin
         rst = 1;
         start = 0;
-        layer_start = 0;
         a_in = 0;
         w_0 = 2; w_1 = 3; w_2 = 5; w_3 = 7;
 
@@ -136,9 +135,7 @@ module tb_systolic_loading;
         layer_output_2 = acc_out_3; 
 
         #(CLK_PERIOD*5);
-        $display("Layer_First : %0d", layer_output_1);
-        $display("Layer_Second: %0d", layer_output_2);
-
+        
         $finish;
 
     end
