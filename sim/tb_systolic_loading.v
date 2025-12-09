@@ -10,6 +10,7 @@ module tb_systolic_loading;
     reg clk;
     reg rst;
     reg start;
+    reg layer_start;
     reg signed [ACC_W-1:0] a_in;
     reg signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
 
@@ -18,7 +19,11 @@ module tb_systolic_loading;
     reg [3:0] clear_dummy      = 0;
 
     wire [3:0] valid_ctrl;
+    wire [3:0] valid_ctrl_layering;
+    assign valid_ctrl[3:2] = valid_ctrl_layering[1:0];
+
     wire       busy;
+    wire       busy_layering;
     wire signed [ACC_W-1:0] acc_out_0, acc_out_1, acc_out_2, acc_out_3;
     wire [N_MACS-1:0] valid_out;
 
@@ -27,6 +32,12 @@ module tb_systolic_loading;
     reg signed [ACC_W-1:0] first_out_2;
     reg signed [ACC_W-1:0] second_out_2;
 
+    reg signed [ACC_W-1:0] layer_output_1;
+    reg signed [ACC_W-1:0] layer_output_2;
+
+
+
+    
     // clock
     initial begin
         clk = 0;
@@ -42,6 +53,14 @@ module tb_systolic_loading;
         .busy(busy)
     );
 
+    layering_pipeline_ctrl u_layering_ctrl (
+        .clk       (clk),
+        .rst       (rst),
+        .start     (layer_start),
+        .valid_ctrl(valid_ctrl_layering),
+        .busy      (busy_layering)
+    );
+
     // MAC array
     mac_array #(
         .W(W),
@@ -51,7 +70,7 @@ module tb_systolic_loading;
         .clk(clk),
         .rst(rst),
         .valid_in_0(valid_ctrl),
-        .valid_in_1(valid_in_1_dummy),
+        .valid_in_1(valid_ctrl_layering),
         .valid_in_2(valid_in_2_dummy),
         .clear(clear_dummy),
         .a_in(a_in),
@@ -67,7 +86,7 @@ module tb_systolic_loading;
         rst = 1;
         start = 0;
         a_in = 0;
-        w_0 = 2; w_1 = 3; w_2 = 0; w_3 = 0;
+        w_0 = 2; w_1 = 3; w_2 = 5; w_3 = 7;
 
         #(CLK_PERIOD*3);
         rst = 0;
@@ -103,6 +122,20 @@ module tb_systolic_loading;
 
         $display("First : %0d", first_out_2);
         $display("Second: %0d", second_out_2);
+
+        //-------- layering
+        @(negedge clk) layer_start = 1;
+        @(negedge clk) layer_start = 0;
+
+        #(CLK_PERIOD*10);
+
+         @(posedge valid_out[2]);
+        layer_output_1 = acc_out_2;
+        @(posedge valid_out[3]);
+        layer_output_2 = acc_out_3; 
+
+        #(CLK_PERIOD*5);
+        
         $finish;
 
     end

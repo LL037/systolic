@@ -94,14 +94,14 @@ module mac_array #(
         .valid_in_1(valid_in_1[2]),
         .valid_in_2(valid_in_2[2]),
         .clear(clear[2]),
-        .a_in_0(a_out_3_2),
-        .a_in_1(acc_out_0),
+        .a_in_0(acc_out_0),
+        .a_in_1(a_out_3_2),
         .a_in_2(),                
         .weight(w_2),               
         .acc_out(acc_out_2),
         .valid_out(valid_out[2]),
-        .a_out_0(),
-        .a_out_1(a_out_2_3), 
+        .a_out_0(a_out_2_3),
+        .a_out_1(), 
         .a_out_2()        
        
     );
