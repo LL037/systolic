@@ -20,7 +20,7 @@ module tb_systolic_loading;
 
     wire [3:0] valid_ctrl;
     wire [3:0] valid_ctrl_layering;
-    assign valid_ctrl[3:2] = valid_ctrl_layering[1:0];
+    assign valid_ctrl[2:3] = valid_ctrl_layering[1:0];
 
     wire       busy;
     wire       busy_layering;
@@ -128,18 +128,18 @@ module tb_systolic_loading;
         @(negedge clk) layer_start = 1;
         @(negedge clk) layer_start = 0;
 
-        #(CLK_PERIOD*10);
+        
 
-         @(posedge valid_out[2]);
+         @(posedge valid_out[2]); 
         layer_output_1 = acc_out_2;
-        @(posedge valid_out[3]);
+         @(posedge valid_out[3]);
         layer_output_2 = acc_out_3; 
 
         #(CLK_PERIOD*5);
         $display("Layer_First : %0d", layer_output_1);
         $display("Layer_Second: %0d", layer_output_2);
 
-        $finish;
+        $stop;
 
     end
 

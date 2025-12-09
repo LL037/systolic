@@ -1,40 +1,97 @@
-module top_system (
-    input wire clk,
-    input wire rst,
-    input wire start_loading,
-    input wire [7:0] data_in,
-    input wire [7:0] w0, w1, w2, w3,
-    // ... 其他端口
+module top_system #(
+    parameter W      = 8,
+    parameter ACC_W  = 16,
+    parameter N_MACS = 4
+)(
+    input  wire                    clk,
+    input  wire                    rst,
+    
+    // Control inputs
+    input  wire                    start_valid_pipeline,   // Start for valid pipeline ctrl
+    input  wire                    start_layering,         // Start for layering ctrl
+    
+    // Data inputs
+    input  wire signed [ACC_W-1:0] a_in,                  // Activation input
+    input  wire signed [ACC_W-1:0] w_0,                   // Weight for MAC 0
+    input  wire signed [ACC_W-1:0] w_1,                   // Weight for MAC 1
+    input  wire signed [ACC_W-1:0] w_2,                   // Weight for MAC 2
+    input  wire signed [ACC_W-1:0] w_3,                   // Weight for MAC 3
+    
+    // Clear signal (optional)
+    input  wire                    clear_all,
+    
+    // Status outputs
+    output wire                    valid_pipeline_busy,
+    output wire                    layering_busy,
+    
+    // Data outputs
+    output wire signed [ACC_W-1:0] acc_out_0,
+    output wire signed [ACC_W-1:0] acc_out_1,
+    output wire signed [ACC_W-1:0] acc_out_2,
+    output wire signed [ACC_W-1:0] acc_out_3,
+    output wire [N_MACS-1:0]       valid_out
 );
 
-    // FSM 输出信号
-    wire [3:0] fsm_valid_ctrl;
-    wire       fsm_busy;
-
-    // 实例化 FSM
-    loading_fsm u_fsm (
+    // Control wires
+    wire [3:0] valid_ctrl_pipeline;
+    wire [3:0] valid_ctrl_layering;
+    wire [N_MACS-1:0] valid_in_0;
+    wire [N_MACS-1:0] valid_in_1;
+    wire [N_MACS-1:0] valid_in_2;
+    wire [N_MACS-1:0] clear;
+    
+    // Valid pipeline control
+    valid_pipeline_ctrl u_valid_pipeline_ctrl (
         .clk        (clk),
         .rst        (rst),
-        .start      (start_loading),
-        .valid_ctrl (fsm_valid_ctrl), // FSM 产生的控制信号
-        .busy       (fsm_busy)
+        .start      (start_valid_pipeline),
+        .valid_ctrl (valid_ctrl_pipeline),
+        .busy       (valid_pipeline_busy)
     );
-
-    // 实例化 MAC Array
+    
+    // Layering pipeline control
+    layering_pipeline_ctrl u_layering_pipeline_ctrl (
+        .clk        (clk),
+        .rst        (rst),
+        .start      (start_layering),
+        .valid_ctrl (valid_ctrl_layering),
+        .busy       (layering_busy)
+    );
+    
+    // Control mapping: pipeline->valid_in_0, layering[1:0]->valid_in_1, layering[3:2]->valid_in_2
+    assign valid_in_0 = valid_ctrl_pipeline[3:0];
+    assign valid_in_1 = {2'b00, valid_ctrl_layering[1:0]};
+    assign valid_in_2 = {2'b00, valid_ctrl_layering[3:2]};
+    assign clear = {N_MACS{clear_all}};
+    
+    // MAC array
     mac_array #(
-        .W(8), .ACC_W(16), .N_MACS(4)
+        .W      (W),
+        .ACC_W  (ACC_W),
+        .N_MACS (N_MACS)
     ) u_mac_array (
         .clk        (clk),
         .rst        (rst),
-        // 将 FSM 的输出连接到 valid_in_0
-        .valid_in_0 (fsm_valid_ctrl), 
         
-        .valid_in_1 (4'b0), // 暂时不用
-        .valid_in_2 (4'b0), // 暂时不用
-        .clear      (4'b0),
-        .a_in       (data_in),
-        .w_0(w0), .w_1(w1), .w_2(w2), .w_3(w3),
-        // ... 输出连接
+        // Control signals
+        .valid_in_0 (valid_in_0),
+        .valid_in_1 (valid_in_1),
+        .valid_in_2 (valid_in_2),
+        .clear      (clear),
+        
+        // Data inputs
+        .a_in       (a_in),
+        .w_0        (w_0),
+        .w_1        (w_1),
+        .w_2        (w_2),
+        .w_3        (w_3),
+        
+        // Outputs
+        .acc_out_0  (acc_out_0),
+        .acc_out_1  (acc_out_1),
+        .acc_out_2  (acc_out_2),
+        .acc_out_3  (acc_out_3),
+        .valid_out  (valid_out)
     );
 
 endmodule
