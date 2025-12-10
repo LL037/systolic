@@ -6,14 +6,14 @@ module layering_pipeline_ctrl (
     output reg        busy
 );
     localparam IDLE   = 4'd0;
-    localparam S_LOAD0= 4'd1; // 第1拍: 接上一层acc
-    localparam S_MAC0 = 4'd2; // 第2拍: 算MAC
-    localparam S_SWAP0= 4'd3; // 第3拍: 交换
-    localparam S_MAC1 = 4'd4; // 第4拍: 算MAC
-    localparam S_LOAD1= 4'd5; // 第5拍: 接新acc
-    localparam S_MAC2 = 4'd6; // 第6拍: 算MAC
-    localparam S_SWAP1= 4'd7; // 第7拍: 交换
-    localparam S_MAC3 = 4'd8; // 第8拍: 算MAC
+    localparam S_LOAD0= 4'd1;
+    localparam S_MAC0 = 4'd2; 
+    localparam S_SWAP0= 4'd3; 
+    localparam S_MAC1 = 4'd4; 
+    localparam S_LOAD1= 4'd5; 
+    localparam S_MAC2 = 4'd6; 
+    localparam S_SWAP1= 4'd7; 
+    localparam S_MAC3 = 4'd8; 
 
     reg [3:0] state, next_state;
 

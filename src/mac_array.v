@@ -33,7 +33,13 @@ module mac_array #(
 
     wire signed [ACC_W-1:0]     a_out_1_0;  
     wire signed [ACC_W-1:0]     a_out_2_3;  
-    wire signed [ACC_W-1:0]     a_out_3_2;  
+    wire signed [ACC_W-1:0]     a_out_3_2; 
+    wire [2:0] valid_ctrl_0;
+    wire [2:0] valid_ctrl_1;
+    wire [2:0] valid_ctrl_2;
+    wire [2:0] valid_ctrl_3;
+
+
 
     assign valid_ctrl_0 = valid_ctrl[2:0];
     assign valid_ctrl_1 = valid_ctrl[5:3];
