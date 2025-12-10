@@ -12,6 +12,9 @@ module tb_top_system;
     reg rst;
     reg start;
     reg clear_all;
+    reg start_valid_pipeline;
+    reg start_layering;
+
     reg signed [ACC_W-1:0] a_in;
     reg signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
 
@@ -39,6 +42,8 @@ module tb_top_system;
         .clk(clk),
         .rst(rst),
         .start(start),
+        .start_valid_pipeline(start_valid_pipeline),
+        .start_layering(start_layering),
         .a_in(a_in),
         .w_0(w_0), .w_1(w_1), .w_2(w_2), .w_3(w_3),
         .clear_all(clear_all),
@@ -85,7 +90,7 @@ module tb_top_system;
         @(negedge busy);
         
         #(CLK_PERIOD*2);
-        $display("Layering Phase - MAC2: %0d, MAC3: %0d", layer_out_2, layer_out_3);
+        $display("Layering Phase - MAC2: %0d, MAC3: %0d", layer1_out_2, layer1_out_3);
 
         #(CLK_PERIOD*10);
         $display("=== Test Complete ===");
