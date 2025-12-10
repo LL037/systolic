@@ -5,15 +5,13 @@ module mac #(
 )(
     input  wire                    clk,
     input  wire                    rst,
-    input  wire                    valid_in_0,
-    input  wire                    valid_in_1,
-    input  wire                    valid_in_2,
+
+    input  wire [2:0]              valid_ctrl,
+     
     input  wire                    clear,
 
-    // 选哪个 accumulator（0~7）
     input  wire [2:0]              acc_sel,
 
-    // 统一 ACC_W 宽度
     input  wire signed [ACC_W-1:0] a_in_0,
     input  wire signed [ACC_W-1:0] a_in_1,
     input  wire signed [ACC_W-1:0] a_in_2,
@@ -26,6 +24,10 @@ module mac #(
     output reg  signed [ACC_W-1:0] a_out_1,
     output reg  signed [ACC_W-1:0] a_out_2
 );
+    assign valid_in_0 = valid_ctrl[0];
+    assign valid_in_1 = valid_ctrl[1];
+    assign valid_in_2 = valid_ctrl[2];
+
 
     // 8 acc
     reg signed [ACC_W-1:0] acc [0:NUM_ACC-1];

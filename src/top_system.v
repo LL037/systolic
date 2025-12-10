@@ -7,8 +7,10 @@ module top_system #(
     input  wire                    rst,
     
     // Control inputs
-    input  wire                    start_valid_pipeline,   // Start for valid pipeline ctrl
-    input  wire                    start_layering,         // Start for layering ctrl
+    input  wire                    start,                 // Start overall operation
+
+    input wire start_valid_pipeline,
+    input wire start_layering,
     
     // Data inputs
     input  wire signed [ACC_W-1:0] a_in,                  // Activation input
@@ -17,12 +19,11 @@ module top_system #(
     input  wire signed [ACC_W-1:0] w_2,                   // Weight for MAC 2
     input  wire signed [ACC_W-1:0] w_3,                   // Weight for MAC 3
     
-    // Clear signal (optional)
+    // Clear signal
     input  wire                    clear_all,
     
     // Status outputs
-    output wire                    valid_pipeline_busy,
-    output wire                    layering_busy,
+    output wire                    busy,
     
     // Data outputs
     output wire signed [ACC_W-1:0] acc_out_0,
@@ -33,12 +34,16 @@ module top_system #(
 );
 
     // Control wires
-    wire [3:0] valid_ctrl_pipeline;
-    wire [3:0] valid_ctrl_layering;
-    wire [N_MACS-1:0] valid_in_0;
-    wire [N_MACS-1:0] valid_in_1;
-    wire [N_MACS-1:0] valid_in_2;
+    wire [11:0] valid_ctrl_pipeline;
+    wire [11:0] valid_ctrl_layering;
+    wire [11:0] valid_ctrl = valid_ctrl_pipeline + valid_ctrl_layering;
+
     wire [N_MACS-1:0] clear;
+    
+    // Mode control wires
+    wire valid_pipeline_busy;
+    wire layering_busy;
+    
     
     // Valid pipeline control
     valid_pipeline_ctrl u_valid_pipeline_ctrl (
@@ -58,10 +63,6 @@ module top_system #(
         .busy       (layering_busy)
     );
     
-    // Control mapping: pipeline->valid_in_0, layering[1:0]->valid_in_1, layering[3:2]->valid_in_2
-    assign valid_in_0 = valid_ctrl_pipeline[3:0];
-    assign valid_in_1 = {2'b00, valid_ctrl_layering[1:0]};
-    assign valid_in_2 = {2'b00, valid_ctrl_layering[3:2]};
     assign clear = {N_MACS{clear_all}};
     
     // MAC array
@@ -74,9 +75,7 @@ module top_system #(
         .rst        (rst),
         
         // Control signals
-        .valid_in_0 (valid_in_0),
-        .valid_in_1 (valid_in_1),
-        .valid_in_2 (valid_in_2),
+        .valid_ctrl (valid_ctrl),
         .clear      (clear),
         
         // Data inputs

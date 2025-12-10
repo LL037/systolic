@@ -5,11 +5,8 @@ module mac_array #(
 )(
     input  wire                    clk,
     input  wire                    rst,
-    
-    // Control signals for each MAC
-    input  wire [N_MACS-1:0]       valid_in_0,  
-    input  wire [N_MACS-1:0]       valid_in_1, 
-    input  wire [N_MACS-1:0]       valid_in_2,   
+
+    input  wire [3*N_MACS-1:0]     valid_ctrl,
   
  
     input  wire [N_MACS-1:0]       clear,      
@@ -38,6 +35,11 @@ module mac_array #(
     wire signed [ACC_W-1:0]     a_out_2_3;  
     wire signed [ACC_W-1:0]     a_out_3_2;  
 
+    assign valid_ctrl_0 = valid_ctrl[2:0];
+    assign valid_ctrl_1 = valid_ctrl[5:3];
+    assign valid_ctrl_2 = valid_ctrl[8:6];
+    assign valid_ctrl_3 = valid_ctrl[11:9];
+
 
     // MAC 0 (top-left)
     mac #(
@@ -47,9 +49,7 @@ module mac_array #(
         .clk(clk),
         .rst(rst),
         .acc_sel(3'b000),
-        .valid_in_0(valid_in_0[0]),
-        .valid_in_1(valid_in_1[0]),
-        .valid_in_2(valid_in_2[0]),
+        .valid_ctrl(valid_ctrl_0),
         .clear(clear[0]),
         .a_in_0(a_in),
         .a_in_1(acc_out_2),
@@ -70,9 +70,7 @@ module mac_array #(
         .clk(clk),
         .rst(rst),
         .acc_sel(3'b000),
-        .valid_in_0(valid_in_0[1]),
-        .valid_in_1(valid_in_1[1]),
-        .valid_in_2(valid_in_2[1]),
+        .valid_ctrl(valid_ctrl_1),
         .clear(clear[1]),
         .a_in_0(a_out_0_1),
         .a_in_1(a_out_0_1_1),   
@@ -93,9 +91,7 @@ module mac_array #(
         .clk(clk),
         .rst(rst),
         .acc_sel(3'b000),
-        .valid_in_0(valid_in_0[2]),
-        .valid_in_1(valid_in_1[2]),
-        .valid_in_2(valid_in_2[2]),
+        .valid_ctrl(valid_ctrl_2),
         .clear(clear[2]),
         .a_in_0(acc_out_0),
         .a_in_1(a_out_3_2),
@@ -116,9 +112,7 @@ module mac_array #(
         .clk(clk),
         .rst(rst),
         .acc_sel(3'b000),
-        .valid_in_0(valid_in_0[3]),
-        .valid_in_1(valid_in_1[3]),
-        .valid_in_2(valid_in_2[3]),
+        .valid_ctrl(valid_ctrl_3),
         .clear(clear[3]),
         .a_in_0(acc_out_1),
         .a_in_1(a_out_2_3), 

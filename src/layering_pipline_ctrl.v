@@ -2,7 +2,7 @@ module layering_pipeline_ctrl (
     input  wire       clk,
     input  wire       rst,
     input  wire       start,
-    output reg  [3:0] valid_ctrl,
+    output reg  [11:0] valid_ctrl,
     output reg        busy
 );
     localparam IDLE   = 4'd0;
@@ -41,17 +41,13 @@ module layering_pipeline_ctrl (
     end
 
     always @(*) begin
-        valid_ctrl = 4'b0000;
+        valid_ctrl = 12'b000000000000;
         case (state)
-            // 第1拍: M2,M3 接上一层acc
-            S_LOAD0: valid_ctrl = 4'b0011; // [1:0] = 2'b11
-            // 第3拍: M2,M3 走交换路径
-            S_SWAP0: valid_ctrl = 4'b1100; // [3:2] = 2'b11
-            // 第5拍: 再次接新acc
-            S_LOAD1: valid_ctrl = 4'b0011;
-            // 第7拍: 再次交换
-            S_SWAP1: valid_ctrl = 4'b1100;
-            default: valid_ctrl = 4'b0000; // 其它拍不发新valid
+            S_LOAD0: valid_ctrl = 12'b001001000000; 
+            S_SWAP0: valid_ctrl = 12'b010010000000;
+            S_LOAD1: valid_ctrl = 12'b001001000000;
+            S_SWAP1: valid_ctrl = 12'b010010000000;
+            default: valid_ctrl = 12'b000000000000;
         endcase
     end
 
