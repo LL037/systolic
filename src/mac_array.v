@@ -9,8 +9,9 @@ module mac_array #(
     input  wire [3*N_MACS-1:0]     valid_ctrl,
   
  
-    input  wire [N_MACS-1:0]       clear,      
-    
+    input  wire [N_MACS-1:0]       clear, 
+    input  wire [N_MACS-1:0]       valid_weight_in,
+     
     // Single activation input (flows through the array)
     input  wire signed [ACC_W-1:0]     a_in,
     
@@ -56,6 +57,7 @@ module mac_array #(
         .rst(rst),
         .acc_sel(3'b000),
         .valid_ctrl(valid_ctrl_0),
+        .weight_valid_in(valid_weight_in),
         .clear(clear[0]),
         .a_in_0(a_in),
         .a_in_1(acc_out_2),
@@ -77,6 +79,7 @@ module mac_array #(
         .rst(rst),
         .acc_sel(3'b000),
         .valid_ctrl(valid_ctrl_1),
+        .weight_valid_in(valid_weight_in),
         .clear(clear[1]),
         .a_in_0(a_out_0_1),
         .a_in_1(a_out_0_1_1),   
@@ -98,6 +101,7 @@ module mac_array #(
         .rst(rst),
         .acc_sel(3'b000),
         .valid_ctrl(valid_ctrl_2),
+        .weight_valid_in(valid_weight_in),
         .clear(clear[2]),
         .a_in_0(acc_out_0),
         .a_in_1(a_out_3_2),
@@ -119,6 +123,7 @@ module mac_array #(
         .rst(rst),
         .acc_sel(3'b000),
         .valid_ctrl(valid_ctrl_3),
+        .weight_valid_in(valid_weight_in),
         .clear(clear[3]),
         .a_in_0(acc_out_1),
         .a_in_1(a_out_2_3), 

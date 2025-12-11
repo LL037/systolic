@@ -7,6 +7,7 @@ module mac #(
     input  wire                    rst,
 
     input  wire [2:0]              valid_ctrl,
+    input  wire                    weight_valid_in,
      
     input  wire                    clear,
 
@@ -34,6 +35,7 @@ module mac #(
 
     
     reg signed [ACC_W-1:0] mul_in;
+    reg signed [ACC_W-1:0] weight_in;
     wire do_mac = valid_in_0 | valid_in_1 | valid_in_2;
 
     integer i;
@@ -48,6 +50,13 @@ module mac #(
         else if (valid_in_2)
             mul_in = a_in_2;
     end
+
+    always @(*) begin
+        weight_in = {ACC_W{1'b0}};
+        if (weight_valid_in)
+            weight_in = weight;
+    end
+
 
     always @(posedge clk) begin
         // pass-through
@@ -72,8 +81,8 @@ module mac #(
                 valid_out <= 1'b0;
 
                 if (do_mac) begin
-                    acc[acc_sel] <= acc[acc_sel] + mul_in * weight;
-                    acc_out      <= acc[acc_sel] + mul_in * weight;
+                    acc[acc_sel] <= acc[acc_sel] + mul_in * weight_in;
+                    acc_out      <= acc[acc_sel] + mul_in * weight_in;
                     valid_out    <= 1'b1;
                 end
             end

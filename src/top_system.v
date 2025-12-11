@@ -62,6 +62,42 @@ module top_system #(
         .valid_ctrl (valid_ctrl_layering),
         .busy       (layering_busy)
     );
+
+    weight_mem_if #(
+        .W       (W),
+        .ACC_W   (ACC_W),
+        .N_MACS  (N_MACS)
+    ) u_weight_mem_if (
+        .clk            (clk),
+        .rst            (rst),
+        .load_weights   (start),  // Assuming start signal triggers weight loading
+        .w_0            (w_0),
+        .w_1            (w_1),
+        .w_2            (w_2),
+        .w_3            (w_3),
+        .valid_weight_out (valid_weight_in)
+    );
+
+    input_mem_if #(
+        .W       (W),
+        .ACC_W   (ACC_W)
+    ) u_input_mem_if (
+        .clk        (clk),
+        .rst        (rst),
+        .a_in       (a_in)
+    );
+
+    weight_pipeline_ctrl #(
+        .N_MACS (N_MACS)
+    ) u_weight_pipeline_ctrl (
+        .clk    (clk),
+        .rst    (rst),
+        .start  (start),
+        .mode   (layering_busy ? 3'd2 : (valid_pipeline_busy ? 3'd1 : 3'd0)),
+        .weight_ctrl (),
+        .busy   (busy)
+    );
+    
     
     assign clear = {N_MACS{clear_all}};
     
