@@ -39,6 +39,7 @@ module top_system #(
     wire [11:0] valid_ctrl = valid_ctrl_pipeline + valid_ctrl_layering;
 
     wire [N_MACS-1:0] clear;
+    wire [N_MACS-1:0] valid_weight_in;
     
     // Mode control wires
     wire valid_pipeline_busy;
@@ -97,7 +98,7 @@ module top_system #(
         .weight_ctrl (),
         .busy   (busy)
     );
-    
+
     
     assign clear = {N_MACS{clear_all}};
     
@@ -112,6 +113,7 @@ module top_system #(
         
         // Control signals
         .valid_ctrl (valid_ctrl),
+        .valid_weight_in (valid_weight_in),
         .clear      (clear),
         
         // Data inputs

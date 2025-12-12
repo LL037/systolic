@@ -7,7 +7,6 @@ module mac_array #(
     input  wire                    rst,
 
     input  wire [3*N_MACS-1:0]     valid_ctrl,
-  
  
     input  wire [N_MACS-1:0]       clear, 
     input  wire [N_MACS-1:0]       valid_weight_in,
