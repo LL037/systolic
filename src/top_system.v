@@ -6,18 +6,14 @@ module top_system #(
     input  wire                    clk,
     input  wire                    rst,
     
-    // Control inputs
+    // Control inputs 
     input  wire                    start,                 // Start overall operation
 
     input wire start_valid_pipeline,
     input wire start_layering,
     
-    // Data inputs
-    input  wire signed [ACC_W-1:0] a_in,                  // Activation input
-    input  wire signed [ACC_W-1:0] w_0,                   // Weight for MAC 0
-    input  wire signed [ACC_W-1:0] w_1,                   // Weight for MAC 1
-    input  wire signed [ACC_W-1:0] w_2,                   // Weight for MAC 2
-    input  wire signed [ACC_W-1:0] w_3,                   // Weight for MAC 3
+
+    input wire [2:0]                mode,                     
     
     // Clear signal
     input  wire                    clear_all,
@@ -36,14 +32,33 @@ module top_system #(
     // Control wires
     wire [11:0] valid_ctrl_pipeline;
     wire [11:0] valid_ctrl_layering;
-    wire [11:0] valid_ctrl = valid_ctrl_pipeline + valid_ctrl_layering;
+    wire [11:0] valid_ctrl = valid_ctrl_pipeline | valid_ctrl_layering;
+    wire [N_MACS-1:0] weight_ctrl;
+
+    // busy wires
+    wire weight_busy;
+    wire valid_pipeline_busy;
+    wire layering_busy;
 
     wire [N_MACS-1:0] clear;
     wire [N_MACS-1:0] valid_weight_in;
-    
+
     // Mode control wires
     wire valid_pipeline_busy;
     wire layering_busy;
+    
+    // Data input wires
+    wire signed [ACC_W-1:0] a_in;
+    wire signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
+    wire [7:0] w_addr;
+    wire [7:0] in_addr;
+    wire load_weights;
+    wire load_input;
+    wire weight_start;
+
+
+    assign busy = weight_busy | valid_pipeline_busy | layering_busy;
+
     
     
     // Valid pipeline control
@@ -64,40 +79,53 @@ module top_system #(
         .busy       (layering_busy)
     );
 
+    // Weight pipeline control
+    weight_pipeline_ctrl #(
+        .N_MACS (N_MACS)
+    ) u_weight_pipeline_ctrl (
+        //input
+        .clk    (clk),
+        .rst    (rst),
+        .start  (weight_start),
+        .mode   (mode),
+
+        //output
+        .weight_ctrl (weight_ctrl),
+        .busy   (weight_busy)
+    );
+    
+    // Weight memory interface
     weight_mem_if #(
-        .W       (W),
-        .ACC_W   (ACC_W),
-        .N_MACS  (N_MACS)
+        .N_MACS  (N_MACS),
+        .DATA_W (ACC_W),
+        .MEM_DEPTH (256),
+        .MEM_FILE ("weights.mem")
     ) u_weight_mem_if (
         .clk            (clk),
         .rst            (rst),
-        .load_weights   (start),  // Assuming start signal triggers weight loading
+        .load_en        (load_weights),
+
+        .w_addr         (w_addr),
         .w_0            (w_0),
         .w_1            (w_1),
         .w_2            (w_2),
         .w_3            (w_3),
-        .valid_weight_out (valid_weight_in)
     );
 
+
+    // Input memory interface
     input_mem_if #(
-        .W       (W),
-        .ACC_W   (ACC_W)
+        .DATA_WW       (W),
+        .MEM_DEPTH   (256),
+        .MEM_FILE    ("input.mem")
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
-        .a_in       (a_in)
+        .load_en    (load_input),
+        .in_addr    (in_addr),
+        .a_out       (a_in)
     );
 
-    weight_pipeline_ctrl #(
-        .N_MACS (N_MACS)
-    ) u_weight_pipeline_ctrl (
-        .clk    (clk),
-        .rst    (rst),
-        .start  (start),
-        .mode   (layering_busy ? 3'd2 : (valid_pipeline_busy ? 3'd1 : 3'd0)),
-        .weight_ctrl (),
-        .busy   (busy)
-    );
 
     
     assign clear = {N_MACS{clear_all}};

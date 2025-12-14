@@ -1,4 +1,4 @@
-module weight_pipeline_ctrl(
+module weight_pipeline_ctrl #(
     parameter N_MACS = 4
 
 )(
