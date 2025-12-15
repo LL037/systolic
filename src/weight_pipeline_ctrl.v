@@ -70,17 +70,17 @@ always @(*) begin
         end
         LOAD: begin
             weight_ctrl = LOAD_MASK;   // 4'b0011 
-            load = 3'b001;
+            
             busy        = 1'b1;
         end
         LAYER: begin
             weight_ctrl = LAYER_MASK;  //  4'b1100 
-            load = 3'b010;
+
             busy        = 1'b1;
         end
         default: begin
             weight_ctrl = {N_MACS{1'b0}};
-            load = 3'b000;
+
             busy        = 1'b0;
         end
     endcase
