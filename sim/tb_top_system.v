@@ -10,22 +10,19 @@ module tb_top_system;
     // DUT signals
     reg clk;
     reg rst;
-    reg start;
-    reg clear_all;
     reg start_valid_pipeline;
     reg start_layering;
-
-    reg signed [ACC_W-1:0] a_in;
-    reg signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
+    reg start_weight;
+    reg [2:0] mode;
+    reg clear_all;
 
     wire busy;
     wire signed [ACC_W-1:0] acc_out_0, acc_out_1, acc_out_2, acc_out_3;
     wire [N_MACS-1:0] valid_out;
 
     // Result storage
-    reg signed [ACC_W-1:0] first_out_0, first_out_1;
-    reg signed [ACC_W-1:0] second_out_0, second_out_1;
-    reg signed [ACC_W-1:0] layer1_out_2, layer1_out_3;
+    reg signed [ACC_W-1:0] captured_out_0, captured_out_1;
+    reg signed [ACC_W-1:0] captured_out_2, captured_out_3;
 
     // Clock generation
     initial begin
@@ -41,13 +38,22 @@ module tb_top_system;
     ) dut (
         .clk(clk),
         .rst(rst),
-        .start(start),
+        
+        // Start signals
         .start_valid_pipeline(start_valid_pipeline),
         .start_layering(start_layering),
-        .a_in(a_in),
-        .w_0(w_0), .w_1(w_1), .w_2(w_2), .w_3(w_3),
+        .start_weight(start_weight),
+        
+        // Mode
+        .mode(mode),
+        
+        // Clear
         .clear_all(clear_all),
+        
+        // Status
         .busy(busy),
+        
+        // Outputs
         .acc_out_0(acc_out_0),
         .acc_out_1(acc_out_1),
         .acc_out_2(acc_out_2),
@@ -55,56 +61,140 @@ module tb_top_system;
         .valid_out(valid_out)
     );
 
+    // Main test sequence
     initial begin
-        // Initialize
+        // Initialize all inputs
         rst = 1;
-        start = 0;
         start_valid_pipeline = 0;
         start_layering = 0;
-
+        start_weight = 0;
+        mode = 3'b000;
         clear_all = 0;
-        a_in = 0;
-        w_0 = 2; w_1 = 3; w_2 = 5; w_3 = 7;
 
-        #(CLK_PERIOD*3);
+        // Hold reset for a few cycles
+        #(CLK_PERIOD * 3);
         rst = 0;
+        #(CLK_PERIOD);
 
-        // Trigger automatic loading -> layering sequence
-        $display("=== Starting Operation (Loading then Layering) ===");
-        a_in = 10;
-        @(negedge clk) start = 1;start_valid_pipeline = 1;
-        @(negedge clk) start = 0; start_valid_pipeline = 0;
-
-        // Wait for first MAC outputs (loading phase)
-        @(posedge valid_out[0]);
-        first_out_0 = acc_out_0;
-        @(posedge valid_out[1]);
-        first_out_1 = acc_out_1;
+        // =============================================
+        // Test 1: Weight Loading Phase
+        // =============================================
+        $display("\n=== Test 1: Weight Loading ===");
+        $display("Time=%0t Starting weight load", $time);
         
-        $display("Loading Phase - MAC0: %0d, MAC1: %0d", first_out_0, first_out_1);
+        @(negedge clk);
+        start_weight = 1;
+        mode = 3'b001;  // Set mode as needed
+        @(negedge clk);
+        start_weight = 0;
+        
+        // Wait for weight loading to complete
+        wait(busy == 1);
+        $display("Time=%0t Weight controller busy", $time);
+        wait(busy == 0);
+        $display("Time=%0t Weight loading complete", $time);
+        
+        #(CLK_PERIOD * 2);
 
-        // Wait for layering phase outputs
+        // =============================================
+        // Test 2: Valid Pipeline Operation
+        // =============================================
+        $display("\n=== Test 2: Valid Pipeline ===");
+        $display("Time=%0t Starting valid pipeline", $time);
+        
+        @(negedge clk);
+        start_valid_pipeline = 1;
+        @(negedge clk);
+        start_valid_pipeline = 0;
 
-        @(posedge clk) start = 1;start_layering = 1;
-        @(posedge clk) start = 0; start_layering = 0;
+        // Wait for first MAC outputs
+        fork
+            begin
+                @(posedge valid_out[0]);
+                captured_out_0 = acc_out_0;
+                $display("Time=%0t MAC0 valid: %0d", $time, captured_out_0);
+            end
+            begin
+                @(posedge valid_out[1]);
+                captured_out_1 = acc_out_1;
+                $display("Time=%0t MAC1 valid: %0d", $time, captured_out_1);
+            end
+        join
 
-        @(posedge valid_out[2]);
-        layer1_out_2 = acc_out_2;
-        @(posedge valid_out[3]);
-        layer1_out_3 = acc_out_3;
-                
-        #(CLK_PERIOD*8);
-        $display("Layering Phase - MAC2: %0d, MAC3: %0d", layer1_out_2, layer1_out_3);
+        // Wait for pipeline to finish
+        wait(busy == 0);
+        $display("Time=%0t Valid pipeline complete", $time);
+        
+        #(CLK_PERIOD * 2);
 
-        #(CLK_PERIOD*20);
-        $display("=== Test Complete ===");
+        // =============================================
+        // Test 3: Layering Pipeline Operation
+        // =============================================
+        $display("\n=== Test 3: Layering Pipeline ===");
+        $display("Time=%0t Starting layering pipeline", $time);
+        
+        @(negedge clk);
+        start_layering = 1;
+        @(negedge clk);
+        start_layering = 0;
+
+        // Wait for layer outputs
+        fork
+            begin
+                @(posedge valid_out[2]);
+                captured_out_2 = acc_out_2;
+                $display("Time=%0t MAC2 valid: %0d", $time, captured_out_2);
+            end
+            begin
+                @(posedge valid_out[3]);
+                captured_out_3 = acc_out_3;
+                $display("Time=%0t MAC3 valid: %0d", $time, captured_out_3);
+            end
+        join
+
+        wait(busy == 0);
+        $display("Time=%0t Layering complete", $time);
+
+        #(CLK_PERIOD * 5);
+
+        // =============================================
+        // Test 4: Clear and Re-run
+        // =============================================
+        $display("\n=== Test 4: Clear All ===");
+        
+        @(negedge clk);
+        clear_all = 1;
+        @(negedge clk);
+        clear_all = 0;
+        
+        $display("Time=%0t Accumulators cleared", $time);
+        $display("After clear: acc=[%0d, %0d, %0d, %0d]", 
+                 acc_out_0, acc_out_1, acc_out_2, acc_out_3);
+
+        #(CLK_PERIOD * 10);
+
+        // =============================================
+        // Summary
+        // =============================================
+        $display("\n=== Test Complete ===");
+        $display("Final outputs: MAC0=%0d, MAC1=%0d, MAC2=%0d, MAC3=%0d",
+                 acc_out_0, acc_out_1, acc_out_2, acc_out_3);
+        
         $finish;
     end
 
-    // Monitor
+    // Continuous monitor
     initial begin
-        $monitor("Time=%0t valid_out=%b acc=[%0d,%0d,%0d,%0d]", 
-                 $time, valid_out, acc_out_0, acc_out_1, acc_out_2, acc_out_3);
+        $monitor("Time=%0t | busy=%b valid=%b | acc=[%0d, %0d, %0d, %0d]", 
+                 $time, busy, valid_out, 
+                 acc_out_0, acc_out_1, acc_out_2, acc_out_3);
+    end
+
+    // Timeout watchdog
+    initial begin
+        #(CLK_PERIOD * 500);
+        $display("ERROR: Test timeout!");
+        $finish;
     end
 
 endmodule
