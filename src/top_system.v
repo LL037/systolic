@@ -6,14 +6,8 @@ module top_system #(
     input  wire                    clk,
     input  wire                    rst,
     
+    input  wire                    start,
 
-    input wire start_valid_pipeline,
-    input wire start_layering,
-    input wire start_weight,
-    
-
-    input wire [2:0]                mode,                     
-    
     // Clear signal
     input  wire                    clear_all,
     
@@ -53,7 +47,26 @@ module top_system #(
 
     assign busy = weight_busy | valid_pipeline_busy | layering_busy;
 
-    
+    // Top level control
+    wire start_valid_pipeline;
+    wire start_weights;
+    wire start_layering;
+    wire start_input;
+    wire [2:0] mode;
+
+
+    top_ctrl u_top_ctrl (
+        .clk                    (clk),
+        .rst                    (rst),
+        .start                  (start),
+
+        .mode                   (mode),
+        .start_valid_pipeline   (start_valid_pipeline),
+        .start_weights            (start_weights),
+        .start_layering         (start_layering),
+        .start_input             (start_input)
+    );
+
     
     // Valid pipeline control
     valid_pipeline_ctrl u_valid_pipeline_ctrl (
@@ -81,7 +94,7 @@ module top_system #(
         //input
         .clk    (clk),
         .rst    (rst),
-        .start  (start_weight),
+        .start  (start_weights),
         .mode   (mode),
 
         //output
@@ -96,11 +109,11 @@ module top_system #(
         .DATA_W (ACC_W),
         .MEM_DEPTH (256),
         .MEM_FILE ("D:/systolic/sim/weights.mem")
-
+        
     ) u_weight_mem_if (
         .clk            (clk),
         .rst            (rst),
-        .load        (load_weights),
+        .load        (load_weight),
 
         .w_addr         (w_addr),
         .w_0            (w_0),
@@ -118,7 +131,7 @@ module top_system #(
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
-        .load_en    (start_valid_pipeline),
+        .load_en    (start_input),
 
         .in_addr    (in_addr),
         .a_out       (a_in)
