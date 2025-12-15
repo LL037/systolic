@@ -7,7 +7,9 @@ module weight_pipeline_ctrl #(
     input  wire       start,
 
     input  wire [2:0]      mode, // 0: idle, 1: load weights, 2: layering
+
     output reg  [N_MACS-1:0] weight_ctrl, 
+    output reg  [2:0] load,
     output reg        busy        
 );
 // FSM states
@@ -22,14 +24,23 @@ localparam [N_MACS-1:0] LAYER_MASK = (LOAD_MASK << HALF_W);
 
 reg [1:0] state, next_state;
 reg [2:0] prev_mode;
+reg [2:0] load_pulse;
+
 
 // state register and remember previous mode
 always @(posedge clk or posedge rst) begin
     if (rst) begin
         state     <= IDLE;
         prev_mode <= 3'd0;
+        load_pulse <= 3'b000;
     end else begin
         state     <= next_state;
+        load_pulse <= 3'b000;
+        if (mode != prev_mode) begin  
+            if (mode == 3'd1)      load_pulse <= 3'b001; 
+            else if (mode == 3'd2) load_pulse <= 3'b010; 
+        end
+
         prev_mode <= mode;
     end
 end
@@ -49,6 +60,9 @@ end
 
 // outputs based on current state
 always @(*) begin
+    weight_ctrl = {N_MACS{1'b0}};
+    busy        = 1'b0;
+    load        = load_pulse; 
     case (state)
         IDLE: begin
             weight_ctrl = {N_MACS{1'b0}};
@@ -56,14 +70,17 @@ always @(*) begin
         end
         LOAD: begin
             weight_ctrl = LOAD_MASK;   // 4'b0011 
+            load = 3'b001;
             busy        = 1'b1;
         end
         LAYER: begin
             weight_ctrl = LAYER_MASK;  //  4'b1100 
+            load = 3'b010;
             busy        = 1'b1;
         end
         default: begin
             weight_ctrl = {N_MACS{1'b0}};
+            load = 3'b000;
             busy        = 1'b0;
         end
     endcase

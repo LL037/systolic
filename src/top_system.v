@@ -11,6 +11,7 @@ module top_system #(
 
     input wire start_valid_pipeline,
     input wire start_layering,
+    input wire start_weight,
     
 
     input wire [2:0]                mode,                     
@@ -52,7 +53,7 @@ module top_system #(
     wire signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
     wire [7:0] w_addr;
     wire [7:0] in_addr;
-    wire load_weights;
+    wire [2:0] load_weights;
     wire load_input;
     wire weight_start;
 
@@ -79,6 +80,7 @@ module top_system #(
         .busy       (layering_busy)
     );
 
+
     // Weight pipeline control
     weight_pipeline_ctrl #(
         .N_MACS (N_MACS)
@@ -86,11 +88,12 @@ module top_system #(
         //input
         .clk    (clk),
         .rst    (rst),
-        .start  (weight_start),
+        .start  (start_weight),
         .mode   (mode),
 
         //output
         .weight_ctrl (weight_ctrl),
+        .load   (load_weights),
         .busy   (weight_busy)
     );
     
