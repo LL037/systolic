@@ -89,10 +89,10 @@ module tb_top_system;
         start_weight = 0;
         
         // Wait for weight loading to complete
-        wait(busy == 1);
-        $display("Time=%0t Weight controller busy", $time);
-        wait(busy == 0);
-        $display("Time=%0t Weight loading complete", $time);
+        //wait(busy == 1);
+        //$display("Time=%0t Weight controller busy", $time);
+        //wait(busy == 0);
+        //$display("Time=%0t Weight loading complete", $time);
         
         #(CLK_PERIOD * 2);
 
@@ -108,18 +108,15 @@ module tb_top_system;
         start_valid_pipeline = 0;
 
         // Wait for first MAC outputs
-        fork
-            begin
-                @(posedge valid_out[0]);
-                captured_out_0 = acc_out_0;
-                $display("Time=%0t MAC0 valid: %0d", $time, captured_out_0);
-            end
-            begin
-                @(posedge valid_out[1]);
-                captured_out_1 = acc_out_1;
-                $display("Time=%0t MAC1 valid: %0d", $time, captured_out_1);
-            end
-        join
+
+        @(posedge valid_out[0]);
+        captured_out_0 = acc_out_0;
+        $display("Time=%0t MAC0 valid: %0d", $time, captured_out_0);
+
+        @(posedge valid_out[1]);
+        captured_out_1 = acc_out_1;
+        $display("Time=%0t MAC1 valid: %0d", $time, captured_out_1);
+
 
         // Wait for pipeline to finish
         wait(busy == 0);
@@ -139,18 +136,15 @@ module tb_top_system;
         start_layering = 0;
 
         // Wait for layer outputs
-        fork
-            begin
-                @(posedge valid_out[2]);
-                captured_out_2 = acc_out_2;
-                $display("Time=%0t MAC2 valid: %0d", $time, captured_out_2);
-            end
-            begin
-                @(posedge valid_out[3]);
-                captured_out_3 = acc_out_3;
-                $display("Time=%0t MAC3 valid: %0d", $time, captured_out_3);
-            end
-        join
+
+        @(posedge valid_out[2]);
+        captured_out_2 = acc_out_2;
+        $display("Time=%0t MAC2 valid: %0d", $time, captured_out_2);
+
+        @(posedge valid_out[3]);
+        captured_out_3 = acc_out_3;
+        $display("Time=%0t MAC3 valid: %0d", $time, captured_out_3);
+     
 
         wait(busy == 0);
         $display("Time=%0t Layering complete", $time);

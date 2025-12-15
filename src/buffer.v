@@ -2,7 +2,7 @@ module weight_mem_if #(
     parameter integer N_MACS     = 4,
     parameter integer DATA_W     = 16,
     parameter integer MEM_DEPTH  = 256,
-    parameter        MEM_FILE    = "weights.mem"
+    parameter        MEM_FILE    = "D:/systolic/sim/weights.mem"
 )(
     input  wire                          clk,
     input  wire                          rst,
@@ -67,7 +67,7 @@ endmodule
 module input_mem_if #(
     parameter integer DATA_W     = 16,
     parameter integer MEM_DEPTH  = 256,
-    parameter        MEM_FILE    = "input.mem"
+    parameter        MEM_FILE    = "D:/systolic/sim/input.mem"
 )(
     input  wire                     clk,
     input  wire                     rst,

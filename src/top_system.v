@@ -42,9 +42,6 @@ module top_system #(
     wire [N_MACS-1:0] clear;
     wire [N_MACS-1:0] valid_weight_in;
 
-    // Mode control wires
-    wire valid_pipeline_busy;
-    wire layering_busy;
     
     // Data input wires
     wire signed [ACC_W-1:0] a_in;
@@ -52,8 +49,6 @@ module top_system #(
     wire [7:0] w_addr;
     wire [7:0] in_addr;
     wire [2:0] load_weights;
-    wire load_input;
-    wire weight_start;
 
 
     assign busy = weight_busy | valid_pipeline_busy | layering_busy;
@@ -100,25 +95,26 @@ module top_system #(
         .N_MACS  (N_MACS),
         .DATA_W (ACC_W),
         .MEM_DEPTH (256),
-        .MEM_FILE ("weights.mem")
+        .MEM_FILE ("D:/systolic/sim/weights.mem")
+
     ) u_weight_mem_if (
         .clk            (clk),
         .rst            (rst),
-        .load_en        (load_weights),
+        .load        (load_weights),
 
         .w_addr         (w_addr),
         .w_0            (w_0),
         .w_1            (w_1),
         .w_2            (w_2),
-        .w_3            (w_3),
+        .w_3            (w_3)
     );
 
 
     // Input memory interface
     input_mem_if #(
-        .DATA_WW       (W),
+        .DATA_W       (16),
         .MEM_DEPTH   (256),
-        .MEM_FILE    ("input.mem")
+        .MEM_FILE    ("D:/systolic/sim/input.mem")
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
@@ -143,7 +139,7 @@ module top_system #(
         
         // Control signals
         .valid_ctrl (valid_ctrl),
-        .valid_weight_in (valid_weight_in),
+        .valid_weight_in (weight_ctrl),
         .clear      (clear),
         
         // Data inputs
