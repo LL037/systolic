@@ -6,8 +6,6 @@ module top_system #(
     input  wire                    clk,
     input  wire                    rst,
     
-    // Control inputs 
-    input  wire                    start,                 // Start overall operation
 
     input wire start_valid_pipeline,
     input wire start_layering,
@@ -124,7 +122,8 @@ module top_system #(
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
-        .load_en    (load_input),
+        .load_en    (start_valid_pipeline),
+
         .in_addr    (in_addr),
         .a_out       (a_in)
     );
