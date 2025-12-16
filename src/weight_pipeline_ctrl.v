@@ -10,7 +10,9 @@ module weight_pipeline_ctrl #(
 
     output reg  [N_MACS-1:0] weight_ctrl, 
     output reg  [2:0] load,
-    output reg        busy        
+    output reg        busy,
+    output reg  load_ready,
+    output reg  layer_ready       
 );
 // FSM states
 localparam IDLE  = 2'd0;
@@ -62,6 +64,8 @@ end
 always @(*) begin
     weight_ctrl = {N_MACS{1'b0}};
     busy        = 1'b0;
+    load_ready = 1'b0;
+    layer_ready = 1'b0;
     load        = load_pulse; 
     case (state)
         IDLE: begin
@@ -70,12 +74,12 @@ always @(*) begin
         end
         LOAD: begin
             weight_ctrl = LOAD_MASK;   // 4'b0011 
-            
+            load_ready = 1'b1;
             busy        = 1'b1;
         end
         LAYER: begin
             weight_ctrl = LAYER_MASK;  //  4'b1100 
-
+            layer_ready = 1'b1;
             busy        = 1'b1;
         end
         default: begin

@@ -44,8 +44,12 @@ module top_system #(
     wire [7:0] in_addr;
     wire [2:0] load_weights;
 
+    //ready signal
+    wire load_ready;
+    wire layer_ready;
 
-    assign busy = weight_busy | valid_pipeline_busy | layering_busy;
+
+    assign busy = valid_pipeline_busy | layering_busy;
 
     // Top level control
     wire start_valid_pipeline;
@@ -59,6 +63,9 @@ module top_system #(
         .clk                    (clk),
         .rst                    (rst),
         .start                  (start),
+        .valid_ctrl_busy        (valid_pipeline_busy),
+        .layer_ctrl_busy        (layering_busy),
+
 
         .mode                   (mode),
         .start_valid_pipeline   (start_valid_pipeline),
@@ -73,6 +80,7 @@ module top_system #(
         .clk        (clk),
         .rst        (rst),
         .start      (start_valid_pipeline),
+        .load_ready (load_ready),
         .valid_ctrl (valid_ctrl_pipeline),
         .busy       (valid_pipeline_busy)
     );
@@ -83,6 +91,7 @@ module top_system #(
         .rst        (rst),
         .start      (start_layering),
         .valid_ctrl (valid_ctrl_layering),
+        .layer_ready (layer_ready),
         .busy       (layering_busy)
     );
 
@@ -100,7 +109,9 @@ module top_system #(
         //output
         .weight_ctrl (weight_ctrl),
         .load   (load_weights),
-        .busy   (weight_busy)
+        .busy   (weight_busy),
+        .load_ready (load_ready),
+        .layer_ready ()
     );
     
     // Weight memory interface
@@ -113,8 +124,11 @@ module top_system #(
     ) u_weight_mem_if (
         .clk            (clk),
         .rst            (rst),
-        .load        (load_weight),
+        .load        (load_weights),
 
+
+        .load_ready     (),
+        .layer_ready    (layer_ready),
         .w_addr         (w_addr),
         .w_0            (w_0),
         .w_1            (w_1),
