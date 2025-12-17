@@ -1,3 +1,17 @@
+// layering_pipeline_ctrl.v
+// Control module for layering pipeline
+// Generates valid control signals for layering operations
+// and manages busy status.
+// Inputs:
+//  - clk: clock signal
+//  - rst: reset signal
+//  - start: signal to start layering operation
+//  - layer_ready: handshake signal indicating readiness to start layering
+// Outputs:
+//  - valid_ctrl: control signals for the layering pipeline
+//  - busy: indicates if the layering pipeline is busy
+
+
 module layering_pipeline_ctrl (
     input  wire       clk,
     input  wire       rst,

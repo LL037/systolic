@@ -1,3 +1,19 @@
+// mac_array.v
+// MAC array module
+// Composes multiple MAC units into an array
+// Inputs:
+//  - clk: clock signal
+//  - rst: reset signal
+//  - valid_ctrl: control signals for each MAC unit
+//  - clear: clear signals for each MAC unit
+// - valid_weight_in: weight valid signals for each MAC unit
+//  - a_in: single activation input (flows through the array)
+//  - w_0, w_1, w_2, w_3: weight inputs for each MAC unit
+// Outputs:
+// - acc_out_0, acc_out_1, acc_out_2, acc_out_3: accumulator outputs from each MAC unit
+//  - valid_out: valid output signals from each MAC unit
+
+
 module mac_array #(
     parameter W      = 8,  
     parameter ACC_W  = 16,
