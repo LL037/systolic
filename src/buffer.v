@@ -1,8 +1,8 @@
 module weight_mem_if #(
-    parameter integer N_MACS     = 4,
-    parameter integer DATA_W     = 16,
-    parameter integer MEM_DEPTH  = 256,
-    parameter         MEM_FILE   = "D:/systolic/sim/weights.mem"
+    parameter N_MACS     = 4,
+    parameter DATA_W     = 16,
+    parameter MEM_DEPTH  = 256,
+    parameter MEM_FILE   = "weights.mem"
 )(
     input  wire                          clk,
     input  wire                          rst,
@@ -16,9 +16,9 @@ module weight_mem_if #(
     output reg  [DATA_W-1:0]             w_3
 );
 
-    localparam integer LINE_W = N_MACS * DATA_W;
-    localparam integer HALF   = N_MACS / 2;
-    localparam integer NUM_PAIRS = N_MACS / 2;
+    localparam LINE_W = N_MACS * DATA_W;
+    localparam HALF   = N_MACS / 2;
+    localparam NUM_PAIRS = N_MACS / 2;
 
     reg [LINE_W-1:0] weight_mem [0:MEM_DEPTH-1];
 
@@ -37,18 +37,18 @@ module weight_mem_if #(
     // Address
     always @(posedge clk or posedge rst) begin
         if (rst)
-            w_addr <= '0;
+            w_addr <= 0;
         else if (load == 3'b010 && !streaming_hi)
-            w_addr <= (w_addr == MEM_DEPTH-1) ? '0 : w_addr + 1;
+            w_addr <= (w_addr == MEM_DEPTH-1) ? 0 : w_addr + 1;
     end
 
     // Lower half: w0, w1 (diagonal pattern)
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            w_0 <= '0;
-            w_1 <= '0;
+            w_0 <= 0;
+            w_1 <= 0;
             streaming_lo <= 1'b0;
-            cnt_lo <= '0;
+            cnt_lo <= 0;
             load_ready <= 1'b0;
         end else begin
             load_ready <= 1'b0;
@@ -56,9 +56,9 @@ module weight_mem_if #(
             if (load == 3'b001 && !streaming_lo) begin
                 streaming_lo <= 1'b1;
                 load_ready <= 1'b1;
-                cnt_lo <= '0;
+                cnt_lo <= 0;
                 w_0 <= line_cur[0 +: DATA_W];
-                w_1 <= '0;
+                w_1 <= 0;
             end
             else if (streaming_lo) begin
                 cnt_lo <= cnt_lo + 1;
@@ -66,7 +66,7 @@ module weight_mem_if #(
                 if (cnt_lo + 1 < HALF)
                     w_0 <= line_cur[DATA_W*(cnt_lo+1) +: DATA_W];
                 else
-                    w_0 <= '0;
+                    w_0 <= 0;
                 
                 w_1 <= line_cur[DATA_W*(HALF + cnt_lo) +: DATA_W];
                 
@@ -79,10 +79,10 @@ module weight_mem_if #(
     // Upper half: w2, w3 (sequential pairs)
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            w_2 <= '0;
-            w_3 <= '0;
+            w_2 <= 0;
+            w_3 <= 0;
             streaming_hi <= 1'b0;
-            cnt_hi <= '0;
+            cnt_hi <= 0;
             layer_ready <= 1'b0;
         end else begin
             layer_ready <= 1'b0;
@@ -90,7 +90,7 @@ module weight_mem_if #(
             if (load == 3'b010 && !streaming_hi) begin
                 streaming_hi <= 1'b1;
                 layer_ready <= 1'b1;
-                cnt_hi <= '0;
+                cnt_hi <= 0;
             end
             else if (streaming_hi) begin
                 w_2 <= line_cur[DATA_W*(2*cnt_hi)     +: DATA_W];
@@ -110,7 +110,7 @@ endmodule
 module input_mem_if #(
     parameter integer DATA_W     = 16,
     parameter integer MEM_DEPTH  = 256,
-    parameter        MEM_FILE    = "D:/systolic/sim/input.mem"
+    parameter        MEM_FILE    = "input.mem"
 )(
     input  wire                     clk,
     input  wire                     rst,
