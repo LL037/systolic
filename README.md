@@ -1,1 +1,27 @@
-![Top_level](https://github.com/user-attachments/assets/40c91e04-d267-4344-bd46-e3187a4e9b8a)
+# Systolic Array (PYNQ-Z2 bring-up)
+
+This repository contains a small systolic-array-based MAC pipeline along with a simple board wrapper for the Digilent PYNQ-Z2.
+
+## PYNQ-Z2 build notes
+
+The PYNQ-Z2 wrapper is implemented in `src/top_pynq_z2.v` and expects:
+- `clk125` from the on-board 125 MHz oscillator.
+- `btn_start`, `btn_clear`, `btn_reset` push buttons.
+- `led[3:0]` for status (busy + valid bits).
+
+The constraints file `constraints/pynq_z2.xdc` maps these signals to the PYNQ-Z2 pins. Double-check the pinout against the Digilent master XDC for your board revision before generating a bitstream.
+
+### Vivado flow (example)
+
+1. Create a new RTL project targeting the PYNQ-Z2 (xc7z020clg400-1).
+2. Add the Verilog sources from `src/`.
+3. Set `src/top_pynq_z2.v` as the top module.
+4. Add `constraints/pynq_z2.xdc` to the project.
+5. Add `sim/input.mem` and `sim/weights.mem` as design sources so Vivado can initialize the inferred block RAMs.
+6. Synthesize, implement, and generate the bitstream.
+
+### Runtime behavior
+
+- Press **btn_start** to kick off the pipeline (single pulse).
+- Press **btn_clear** to clear all accumulators.
+- **led[3]** shows `busy`, and **led[2:0]** show the lower three `valid_out` bits (adjust the LED mapping if you want all four valid bits).
