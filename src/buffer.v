@@ -20,13 +20,16 @@ module weight_mem_if #(
     localparam HALF   = N_MACS / 2;
     localparam NUM_PAIRS = N_MACS / 2;
 
-    reg [LINE_W-1:0] weight_mem [0:MEM_DEPTH-1];
+    (* ram_style = "block" *) reg [LINE_W-1:0] weight_mem [0:MEM_DEPTH-1];
+    reg [LINE_W-1:0] line_q;
 
     initial begin
         $readmemh(MEM_FILE, weight_mem);
     end
 
-    wire [LINE_W-1:0] line_cur = weight_mem[w_addr];
+    always @(posedge clk) begin
+        line_q <= weight_mem[w_addr];
+    end
 
     // Streaming state
     reg streaming_lo;
@@ -57,18 +60,18 @@ module weight_mem_if #(
                 streaming_lo <= 1'b1;
                 load_ready <= 1'b1;
                 cnt_lo <= 0;
-                w_0 <= line_cur[0 +: DATA_W];
+                w_0 <= line_q[0 +: DATA_W];
                 w_1 <= 0;
             end
             else if (streaming_lo) begin
                 cnt_lo <= cnt_lo + 1;
                 
                 if (cnt_lo + 1 < HALF)
-                    w_0 <= line_cur[DATA_W*(cnt_lo+1) +: DATA_W];
+                    w_0 <= line_q[DATA_W*(cnt_lo+1) +: DATA_W];
                 else
                     w_0 <= 0;
                 
-                w_1 <= line_cur[DATA_W*(HALF + cnt_lo) +: DATA_W];
+                w_1 <= line_q[DATA_W*(HALF + cnt_lo) +: DATA_W];
                 
                 if (cnt_lo == HALF - 1)
                     streaming_lo <= 1'b0;
@@ -93,8 +96,8 @@ module weight_mem_if #(
                 cnt_hi <= 0;
             end
             else if (streaming_hi) begin
-                w_2 <= line_cur[DATA_W*(2*cnt_hi)     +: DATA_W];
-                w_3 <= line_cur[DATA_W*(2*cnt_hi + 1) +: DATA_W];
+                w_2 <= line_q[DATA_W*(2*cnt_hi)     +: DATA_W];
+                w_3 <= line_q[DATA_W*(2*cnt_hi + 1) +: DATA_W];
                 
                 cnt_hi <= cnt_hi + 1;
                 
@@ -119,7 +122,7 @@ module input_mem_if #(
     output reg  [DATA_W-1:0]        a_out
 );
 
-    reg [DATA_W-1:0] input_mem [0:MEM_DEPTH-1];
+    (* ram_style = "block" *) reg [DATA_W-1:0] input_mem [0:MEM_DEPTH-1];
     reg [DATA_W-1:0] mem_q;
 
     // Load input file at startup

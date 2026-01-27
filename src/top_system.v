@@ -119,7 +119,7 @@ module top_system #(
         .N_MACS  (N_MACS),
         .DATA_W (ACC_W),
         .MEM_DEPTH (256),
-        .MEM_FILE ("weights.mem")
+        .MEM_FILE ("sim/weights.mem")
         
     ) u_weight_mem_if (
         .clk            (clk),
@@ -141,7 +141,7 @@ module top_system #(
     input_mem_if #(
         .DATA_W       (16),
         .MEM_DEPTH   (256),
-        .MEM_FILE    ("input.mem")
+        .MEM_FILE    ("sim/input.mem")
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
