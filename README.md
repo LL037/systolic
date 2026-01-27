@@ -17,8 +17,17 @@ The constraints file `constraints/pynq_z2.xdc` maps these signals to the PYNQ-Z2
 2. Add the Verilog sources from `src/`.
 3. Set `src/top_pynq_z2.v` as the top module.
 4. Add `constraints/pynq_z2.xdc` to the project.
-5. Add `sim/input.mem` and `sim/weights.mem` as design sources so Vivado can initialize the inferred block RAMs.
+5. Add `sim/input.mem` and `sim/weights.mem` as design sources so Vivado can initialize the inferred block RAMs (the RTL now references these paths directly).
 6. Synthesize, implement, and generate the bitstream.
+
+### Creating a design in Vivado (quick steps)
+
+1. Open Vivado and select **Create Project**.
+2. Choose **RTL Project**, and check **Do not specify sources at this time** if you prefer to add them afterward.
+3. Select the part **xc7z020clg400-1** (PYNQ-Z2).
+4. In **Project Manager → Add Sources**, add `src/*.v` plus `constraints/pynq_z2.xdc`.
+5. In the same **Add Sources** flow, add `sim/input.mem` and `sim/weights.mem` as design sources (used to initialize BRAM).
+6. Set `src/top_pynq_z2.v` as the top module, then run **Synthesis** and **Implementation**.
 
 ### Runtime behavior
 
