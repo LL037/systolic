@@ -10,6 +10,20 @@ module top_system #(
 
     // Clear signal
     input  wire                    clear_all,
+
+    // Weight BRAM port (to AXI BRAM Controller)
+    output wire                    weight_bram_en,
+    output wire [(N_MACS*ACC_W/8)-1:0] weight_bram_we,
+    output wire [10:0]             weight_bram_addr,
+    output wire [N_MACS*ACC_W-1:0] weight_bram_din,
+    input  wire [N_MACS*ACC_W-1:0] weight_bram_dout,
+
+    // Input BRAM port (to AXI BRAM Controller)
+    output wire                    input_bram_en,
+    output wire [(ACC_W/8)-1:0]    input_bram_we,
+    output wire [8:0]              input_bram_addr,
+    output wire [ACC_W-1:0]         input_bram_din,
+    input  wire [ACC_W-1:0]         input_bram_dout,
     
     // Status outputs
     output wire                    busy,
@@ -119,12 +133,19 @@ module top_system #(
         .N_MACS  (N_MACS),
         .DATA_W (ACC_W),
         .MEM_DEPTH (256),
-        .MEM_FILE ("sim/weights.mem")
+        .MEM_FILE ("sim/weights.mem"),
+        .USE_EXT_BRAM (1),
+        .BRAM_ADDR_W (11)
         
     ) u_weight_mem_if (
         .clk            (clk),
         .rst            (rst),
         .load        (load_weights),
+        .bram_en        (weight_bram_en),
+        .bram_we        (weight_bram_we),
+        .bram_addr      (weight_bram_addr),
+        .bram_din       (weight_bram_din),
+        .bram_dout      (weight_bram_dout),
 
 
         .load_ready     (),
@@ -141,11 +162,18 @@ module top_system #(
     input_mem_if #(
         .DATA_W       (16),
         .MEM_DEPTH   (256),
-        .MEM_FILE    ("sim/input.mem")
+        .MEM_FILE    ("sim/input.mem"),
+        .USE_EXT_BRAM (1),
+        .BRAM_ADDR_W (9)
     ) u_input_mem_if (
         .clk        (clk),
         .rst        (rst),
         .load_en    (start_input),
+        .bram_en    (input_bram_en),
+        .bram_we    (input_bram_we),
+        .bram_addr  (input_bram_addr),
+        .bram_din   (input_bram_din),
+        .bram_dout  (input_bram_dout),
 
         .in_addr    (in_addr),
         .a_out       (a_in)
