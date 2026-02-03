@@ -3,7 +3,21 @@ module top_pynq_z2 (
     input  wire       btn_reset,
     input  wire       btn_start,
     input  wire       btn_clear,
-    output wire [3:0] led
+    output wire [3:0] led,
+
+    // Weight BRAM port (connect to AXI BRAM Controller BRAM_PORTA)
+    output wire       weight_bram_en,
+    output wire [7:0] weight_bram_we,
+    output wire [10:0] weight_bram_addr,
+    output wire [63:0] weight_bram_din,
+    input  wire [63:0] weight_bram_dout,
+
+    // Input BRAM port (connect to AXI BRAM Controller BRAM_PORTB)
+    output wire       input_bram_en,
+    output wire [1:0] input_bram_we,
+    output wire [8:0] input_bram_addr,
+    output wire [15:0] input_bram_din,
+    input  wire [15:0] input_bram_dout
 );
     // Synchronize buttons to clk125
     reg [1:0] reset_sync;
@@ -45,6 +59,16 @@ module top_pynq_z2 (
         .rst        (rst),
         .start      (start_pulse),
         .clear_all  (clear_pulse),
+        .weight_bram_en   (weight_bram_en),
+        .weight_bram_we   (weight_bram_we),
+        .weight_bram_addr (weight_bram_addr),
+        .weight_bram_din  (weight_bram_din),
+        .weight_bram_dout (weight_bram_dout),
+        .input_bram_en    (input_bram_en),
+        .input_bram_we    (input_bram_we),
+        .input_bram_addr  (input_bram_addr),
+        .input_bram_din   (input_bram_din),
+        .input_bram_dout  (input_bram_dout),
         .busy       (busy),
         .acc_out_0  (acc_out_0),
         .acc_out_1  (acc_out_1),
