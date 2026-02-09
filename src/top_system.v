@@ -1,7 +1,8 @@
 module top_system #(
     parameter W      = 8,
     parameter ACC_W  = 16,
-    parameter N_MACS = 4
+    parameter N_MACS = 4,
+    parameter MEM_DEPTH = 256
 )(
     input  wire                    clk,
     input  wire                    rst,
@@ -10,6 +11,20 @@ module top_system #(
 
     // Clear signal
     input  wire                    clear_all,
+    
+    // ========================================
+    // Weight BRAM Interface
+    // ========================================
+    output wire [$clog2(MEM_DEPTH)-1:0]  weight_bram_addr,
+    output wire                          weight_bram_en,
+    input  wire [N_MACS*ACC_W-1:0]       weight_bram_dout,  // 64-bit
+    
+    // ========================================
+    // Input BRAM Interface
+    // ========================================
+    output wire [$clog2(MEM_DEPTH)-1:0]  input_bram_addr,
+    output wire                          input_bram_en,
+    input  wire [ACC_W-1:0]              input_bram_dout,   // 16-bit
     
     // Status outputs
     output wire                    busy,
@@ -40,8 +55,8 @@ module top_system #(
     // Data input wires
     wire signed [ACC_W-1:0] a_in;
     wire signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
-    wire [7:0] w_addr;
-    wire [7:0] in_addr;
+    wire [$clog2(MEM_DEPTH)-1:0] w_addr;
+    wire [$clog2(MEM_DEPTH)-1:0] in_addr;
     wire [2:0] load_weights;
 
     //ready signal
@@ -69,9 +84,9 @@ module top_system #(
 
         .mode                   (mode),
         .start_valid_pipeline   (start_valid_pipeline),
-        .start_weights            (start_weights),
+        .start_weights          (start_weights),
         .start_layering         (start_layering),
-        .start_input             (start_input)
+        .start_input            (start_input)
     );
 
     
@@ -114,41 +129,47 @@ module top_system #(
         .layer_ready ()
     );
     
-    // Weight memory interface
+    // Weight memory interface (with BRAM ports)
     weight_mem_if #(
-        .N_MACS  (N_MACS),
-        .DATA_W (ACC_W),
-        .MEM_DEPTH (256),
-        .MEM_FILE ("weights.mem")
-        
+        .N_MACS    (N_MACS),
+        .DATA_W    (ACC_W),
+        .MEM_DEPTH (MEM_DEPTH)
     ) u_weight_mem_if (
-        .clk            (clk),
-        .rst            (rst),
+        .clk         (clk),
+        .rst         (rst),
         .load        (load_weights),
 
+        // BRAM interface - directly to top ports
+        .bram_addr   (weight_bram_addr),
+        .bram_en     (weight_bram_en),
+        .bram_dout   (weight_bram_dout),
 
-        .load_ready     (),
-        .layer_ready    (layer_ready),
-        .w_addr         (w_addr),
-        .w_0            (w_0),
-        .w_1            (w_1),
-        .w_2            (w_2),
-        .w_3            (w_3)
+        .load_ready  (),
+        .layer_ready (layer_ready),
+        .w_addr      (w_addr),
+        .w_0         (w_0),
+        .w_1         (w_1),
+        .w_2         (w_2),
+        .w_3         (w_3)
     );
 
 
-    // Input memory interface
+    // Input memory interface (with BRAM ports)
     input_mem_if #(
-        .DATA_W       (16),
-        .MEM_DEPTH   (256),
-        .MEM_FILE    ("input.mem")
+        .DATA_W    (ACC_W),
+        .MEM_DEPTH (MEM_DEPTH)
     ) u_input_mem_if (
-        .clk        (clk),
-        .rst        (rst),
-        .load_en    (start_input),
+        .clk       (clk),
+        .rst       (rst),
+        .load_en   (start_input),
 
-        .in_addr    (in_addr),
-        .a_out       (a_in)
+        // BRAM interface - directly to top ports
+        .bram_addr (input_bram_addr),
+        .bram_en   (input_bram_en),
+        .bram_dout (input_bram_dout),
+
+        .in_addr   (in_addr),
+        .a_out     (a_in)
     );
 
 

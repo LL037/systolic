@@ -1,15 +1,81 @@
+module input_mem_if #(
+    parameter integer DATA_W     = 16,
+    parameter integer MEM_DEPTH  = 256
+)(
+    input  wire                            clk,
+    input  wire                            rst,
+    input  wire                            load_en,     // advance to next input
+    
+    // BRAM Interface - directly connect to Block Memory Generator
+    output reg  [$clog2(MEM_DEPTH)-1:0]    bram_addr,   // Address to BRAM
+    output wire                            bram_en,      // BRAM enable
+    input  wire [DATA_W-1:0]               bram_dout,   // Data from BRAM
+    
+    // Output
+    output reg  [$clog2(MEM_DEPTH)-1:0]    in_addr,     // Current address (for debug/status)
+    output reg  [DATA_W-1:0]               a_out
+);
+
+    reg [DATA_W-1:0] mem_q;
+    reg primed;   // becomes 1 after first load_en
+
+    // BRAM enable - always enabled when not in reset
+    assign bram_en = ~rst;
+
+    // Address counter + primed
+    // Note: bram_addr leads in_addr by 1 cycle for read latency compensation
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            in_addr   <= 0;
+            bram_addr <= 0;
+            primed    <= 1'b0;
+        end else if (load_en) begin
+            primed <= 1'b1;
+            if (in_addr == MEM_DEPTH-1) begin
+                in_addr   <= 0;
+                bram_addr <= 1;  // Pre-fetch next address
+            end else begin
+                in_addr   <= in_addr + 1'b1;
+                bram_addr <= (in_addr + 2 >= MEM_DEPTH) ? 0 : in_addr + 2;  // Pre-fetch
+            end
+        end
+    end
+
+    // Synchronous read from BRAM (default 0 before first load)
+    // BRAM has 1 cycle read latency, so bram_dout corresponds to bram_addr from previous cycle
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            mem_q <= {DATA_W{1'b0}};
+            a_out <= {DATA_W{1'b0}};
+        end else begin
+            mem_q <= bram_dout;  // Capture BRAM output
+            if (primed)
+                a_out <= mem_q;
+            else
+                a_out <= {DATA_W{1'b0}}; // hold 0 until first load_en
+        end
+    end
+
+endmodule
+
 module weight_mem_if #(
     parameter N_MACS     = 4,
     parameter DATA_W     = 16,
-    parameter MEM_DEPTH  = 256,
-    parameter MEM_FILE   = "weights.mem"
+    parameter MEM_DEPTH  = 256
 )(
     input  wire                          clk,
     input  wire                          rst,
     input  wire [2:0]                    load,
     output reg                           load_ready,
     output reg                           layer_ready,
-    output reg  [$clog2(MEM_DEPTH)-1:0]  w_addr,
+    
+    // BRAM Interface - directly connect to Block Memory Generator
+    output reg  [$clog2(MEM_DEPTH)-1:0]  bram_addr,    // Address to BRAM
+    output wire                          bram_en,       // BRAM enable
+    input  wire [N_MACS*DATA_W-1:0]      bram_dout,    // Data from BRAM (one line)
+    
+    // Weight outputs to MAC array
+    output reg  [$clog2(MEM_DEPTH)-1:0]  w_addr,       // Current address (for debug/status)
     output reg  [DATA_W-1:0]             w_0,
     output reg  [DATA_W-1:0]             w_1,
     output reg  [DATA_W-1:0]             w_2,
@@ -20,13 +86,11 @@ module weight_mem_if #(
     localparam HALF   = N_MACS / 2;
     localparam NUM_PAIRS = N_MACS / 2;
 
-    reg [LINE_W-1:0] weight_mem [0:MEM_DEPTH-1];
+    // BRAM enable - always enabled when not in reset
+    assign bram_en = ~rst;
 
-    initial begin
-        $readmemh(MEM_FILE, weight_mem);
-    end
-
-    wire [LINE_W-1:0] line_cur = weight_mem[w_addr];
+    // Use BRAM output directly (replaces weight_mem[w_addr])
+    wire [LINE_W-1:0] line_cur = bram_dout;
 
     // Streaming state
     reg streaming_lo;
@@ -34,12 +98,15 @@ module weight_mem_if #(
     reg [$clog2(N_MACS)-1:0] cnt_lo;
     reg [$clog2(N_MACS)-1:0] cnt_hi;
 
-    // Address
+    // Address - drives both w_addr and bram_addr
     always @(posedge clk or posedge rst) begin
-        if (rst)
-            w_addr <= 0;
-        else if (load == 3'b010 && !streaming_hi)
-            w_addr <= (w_addr == MEM_DEPTH-1) ? 0 : w_addr + 1;
+        if (rst) begin
+            w_addr    <= 0;
+            bram_addr <= 0;
+        end else if (load == 3'b010 && !streaming_hi) begin
+            w_addr    <= (w_addr == MEM_DEPTH-1) ? 0 : w_addr + 1;
+            bram_addr <= (w_addr == MEM_DEPTH-1) ? 0 : w_addr + 1;
+        end
     end
 
     // Lower half: w0, w1 (diagonal pattern)
@@ -103,62 +170,5 @@ module weight_mem_if #(
             end
         end
     end
-
-endmodule
-
-
-module input_mem_if #(
-    parameter integer DATA_W     = 16,
-    parameter integer MEM_DEPTH  = 256,
-    parameter        MEM_FILE    = "input.mem"
-)(
-    input  wire                     clk,
-    input  wire                     rst,
-    input  wire                     load_en,     // advance to next input
-    output reg  [$clog2(MEM_DEPTH)-1:0] in_addr,
-    output reg  [DATA_W-1:0]        a_out
-);
-
-    reg [DATA_W-1:0] input_mem [0:MEM_DEPTH-1];
-    reg [DATA_W-1:0] mem_q;
-
-    // Load input file at startup
-    initial begin
-        if (MEM_FILE != "") begin
-            $display("Loading input data from %s", MEM_FILE);
-            $readmemh(MEM_FILE, input_mem);
-        end
-    end
-
-        reg primed;   // NEW: becomes 1 after first load_en
-
-    // Address counter + primed
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            in_addr <= 0;
-            primed  <= 1'b0;   // NEW
-        end else if (load_en) begin
-            primed <= 1'b1;    // NEW
-            if (in_addr == MEM_DEPTH-1)
-                in_addr <= 0;
-            else
-                in_addr <= in_addr + 1'b1;
-        end
-    end
-
-    // Synchronous read (default 0 before first load)
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            mem_q <= {DATA_W{1'b0}};
-            a_out <= {DATA_W{1'b0}};   // default 0
-        end else begin
-            mem_q <= input_mem[in_addr];
-            if (primed)
-                a_out <= mem_q;
-            else
-                a_out <= {DATA_W{1'b0}}; // hold 0 until first load_en
-        end
-    end
-
 
 endmodule
