@@ -28,6 +28,7 @@ module top_system #(
     
     // Status outputs
     output wire                    busy,
+    output wire                    done,
     
     // Data outputs
     output wire signed [ACC_W-1:0] acc_out_0,
@@ -86,7 +87,8 @@ module top_system #(
         .start_valid_pipeline   (start_valid_pipeline),
         .start_weights          (start_weights),
         .start_layering         (start_layering),
-        .start_input            (start_input)
+        .start_input            (start_input),
+        .done                   (done)
     );
 
     
