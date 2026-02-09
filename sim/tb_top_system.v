@@ -14,6 +14,7 @@ module tb_top_system;
     reg  clear_all;
 
     wire busy;
+    wire done;
     wire signed [ACC_W-1:0] acc_out_0;
     wire signed [ACC_W-1:0] acc_out_1;
     wire signed [ACC_W-1:0] acc_out_2;
@@ -35,6 +36,7 @@ module tb_top_system;
         .start      (start),
         .clear_all  (clear_all),
         .busy       (busy),
+        .done       (done),
         .acc_out_0  (acc_out_0),
         .acc_out_1  (acc_out_1),
         .acc_out_2  (acc_out_2),
@@ -46,6 +48,12 @@ module tb_top_system;
     initial begin
         $dumpfile("tb_top_system.vcd");
         $dumpvars(0, tb_top_system);
+    end
+
+    // monitor done signal
+    always @(posedge clk) begin
+        if (done)
+            $display("DONE asserted at time %0t", $time);
     end
 
     // stimulus

@@ -10,7 +10,8 @@ module top_ctrl(
     output reg        start_valid_pipeline,
     output reg        start_layering,
     output reg        start_weights,
-    output reg        start_input
+    output reg        start_input,
+    output reg        done
 );
 
     localparam [2:0] MODE_IDLE  = 3'd0;
@@ -37,12 +38,14 @@ module top_ctrl(
             start_layering       <= 1'b0;
             start_weights        <= 1'b0;
             start_input          <= 1'b0;
+            done                 <= 1'b0;
         end else begin
             // default: 1-cycle pulses
             start_valid_pipeline <= 1'b0;
             start_layering       <= 1'b0;
             start_weights        <= 1'b0;
             start_input          <= 1'b0;
+            done                 <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -88,8 +91,10 @@ module top_ctrl(
 
                 S_WAIT_LAY_OFF: begin
                     mode <= MODE_LAYER;
-                    if (!layer_ctrl_busy)
+                    if (!layer_ctrl_busy) begin
                         state <= S_IDLE;          // DONE
+                        done  <= 1'b1;
+                    end
                 end
 
                 default: begin
