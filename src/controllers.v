@@ -91,7 +91,6 @@ module top_ctrl_nn #(
                     mode <= MODE_LOAD;
                     if (!valid_ctrl_busy)
                         state <= S_ISSUE_LOAD;
-                    end
                 end
 
                 S_ISSUE_LAYER: begin
@@ -356,7 +355,7 @@ module tile_ctrl_nn #(
                 INCR: begin
                     acc_sel_tile <= tile_cnt;
                     
-                    if (tile_cnt == 3'(N_MACS - 1))
+                    if (tile_cnt == N_MACS - 1)
                         tile_cnt <= 3'd0;
                     else
                         tile_cnt <= tile_cnt + 3'd1;

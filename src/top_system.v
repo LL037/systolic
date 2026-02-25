@@ -40,7 +40,7 @@ module top_system_nn #(
     output wire signed [ACC_W-1:0]        acc_out_1,
     output wire signed [ACC_W-1:0]        acc_out_2,
     output wire signed [ACC_W-1:0]        acc_out_3,
-    output wire [N_MACS-1:0]              valid_out,
+    output wire [N_MACS-1:0]              valid_out
 
 );
 
