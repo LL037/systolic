@@ -1,6 +1,6 @@
 
 module top_ctrl_nn #(
-    parameter N = 4   // Matrix dimension (must be divisible by 4)
+    parameter N = 8   // Matrix dimension (must be divisible by 4)
 )(
     input  wire       clk,
     input  wire       rst,
@@ -89,6 +89,7 @@ module top_ctrl_nn #(
                 // next tile 
                 S_NEXT_LOAD_TILE: begin
                     mode <= MODE_LOAD;
+                    next_tile <= 1'b1;
                     if (!valid_ctrl_busy)
                         state <= S_ISSUE_LOAD;
                 end
@@ -127,187 +128,202 @@ endmodule
 
 
 module layering_pipeline_ctrl_nn (
-    input  wire        clk,
-    input  wire        rst,
-    input  wire        start,
-    input  wire        layer_ready,
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+    input  wire       layer_ready,   // handshake: only start when ready
     output reg  [11:0] valid_ctrl,
-    output reg         busy
+    output reg        busy
 );
-    localparam IDLE   = 2'd0;
-    localparam S_WAIT = 2'd1;
-    localparam S_LOAD0= 2'd2;
-    localparam S_SWAP0= 2'd3;
-
-    reg [1:0] state, next_state;
+    localparam IDLE   = 4'd0;
+    localparam S_WAIT = 4'd1;   // NEW: wait for layer_ready after start
+    localparam S_LOAD0= 4'd2;
+    localparam S_SWAP0= 4'd4; 
+ 
+     
+    reg [3:0] state, next_state;
 
     always @(posedge clk) begin
-        if (rst)  state <= IDLE;
-        else      state <= next_state;
+        if (rst)
+            state <= IDLE;
+        else
+            state <= next_state;
     end
 
     always @(*) begin
         next_state = state;
         case (state)
-            IDLE:    next_state = start       ? S_WAIT  : IDLE;
+            IDLE:    next_state = start ? S_WAIT  : IDLE;
             S_WAIT:  next_state = layer_ready ? S_LOAD0 : S_WAIT;
+
             S_LOAD0: next_state = S_SWAP0;
             S_SWAP0: next_state = IDLE;
+
             default: next_state = IDLE;
         endcase
     end
 
-    // valid_ctrl: drive mac_0/mac_1 with a_in_1 (acc feedback) in S_LOAD0
-    //             drive mac_2/mac_3 with a_in_1 in S_SWAP0
     always @(*) begin
+        valid_ctrl = 12'b000000000000;
         case (state)
-            S_LOAD0: valid_ctrl = 12'b001001000000; // mac_0 a_in_1, mac_1 a_in_1
-            S_SWAP0: valid_ctrl = 12'b010010000000; // mac_2 a_in_1, mac_3 a_in_1
+            S_LOAD0: valid_ctrl = 12'b001001000000; 
+            S_SWAP0: valid_ctrl = 12'b010010000000;
             default: valid_ctrl = 12'b000000000000;
         endcase
     end
 
     always @(posedge clk) begin
-        if (rst) busy <= 1'b0;
-        else     busy <= (next_state != IDLE);
+        if (rst)
+            busy <= 1'b0;
+        else
+            busy <= (next_state != IDLE);
     end
 
 endmodule
 
 
-module valid_pipeline_ctrl_nn #(
-    parameter N = 4   // must match matrix size
-)(
-    input  wire        clk,
-    input  wire        rst,
-    input  wire        start,       // 1-cycle pulse to begin
-    input  wire        load_ready,  // handshake from weight_mem_if
-    output reg  [11:0] valid_ctrl,
-    output reg         busy
+module valid_pipeline_ctrl_nn (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+    input  wire       load_ready,
+    output reg  [11:0] valid_ctrl, 
+    output reg        busy        
 );
 
-    reg [$clog2(N+2):0] cnt;        // count N cycles of activation
-    reg                  running;
-    reg                  armed;
-
-    // valid_ctrl encoding for mac_0: bit0=a_in_0
-    // valid_ctrl encoding for mac_1: bit0=a_in_0 (= mac_0.a_out_0, 1-cycle late)
-    // During load, only tile-1 pair is active (mac_0, mac_1)
+    reg [5:0] valid_shift;
+    reg [1:0] start_tok;   // CHANGED: 2-bit token "11"
+    reg       armed;
 
     always @(posedge clk) begin
         if (rst) begin
-            cnt       <= 0;
-            running   <= 1'b0;
-            armed     <= 1'b0;
-            busy      <= 1'b0;
-            valid_ctrl <= 12'd0;
+            valid_shift <= 6'b000000;
+            start_tok   <= 2'b00;
+            armed       <= 1'b0;
+            busy        <= 1'b0;
         end else begin
-            if (start)  armed <= 1'b1;
-            if (load_ready && armed) begin
-                running <= 1'b1;
-                armed   <= 1'b0;
-                cnt     <= 0;
+            // latch a 2-cycle token on start
+            if (start) start_tok <= 2'b11;
+
+            // allow running once ready
+            if (load_ready) armed <= 1'b1;
+
+            if (armed || load_ready) begin
+                // inject token LSB into tap0 (gives 2 cycles of '1')
+                valid_shift[0] <= start_tok[0];
+                valid_shift[3] <= valid_shift[0];
+
+                // shift token down (natural decay in 2 cycles)
+                start_tok <= {1'b0, start_tok[1]};
             end
 
-            if (running) begin
-                cnt <= cnt + 1;
+            busy <= (|start_tok) | valid_shift[0] | valid_shift[3];
 
-                // mac_0 active for cycles 0..N-1
-                // mac_1 active for cycles 1..N (1 cycle offset due to pass-through)
-                // packed: {mac3[2:0], mac2[2:0], mac1[2:0], mac0[2:0]}
-                valid_ctrl[2:0]  <= (cnt < N)   ? 3'b001 : 3'b000;  // mac_0 a_in_0
-                valid_ctrl[5:3]  <= (cnt > 0 && cnt <= N) ? 3'b001 : 3'b000; // mac_1
-                valid_ctrl[11:6] <= 6'b000000;  // tile2 not in load phase
-
-                if (cnt == N + 1) begin
-                    running    <= 1'b0;
-                    valid_ctrl <= 12'd0;
-                end
-            end else begin
-                valid_ctrl <= 12'd0;
-            end
-
-            busy <= running || armed;
+            if (busy == 1'b0)
+                armed <= 1'b0;
         end
     end
 
-endmodule
+    always @(*) begin
+        valid_ctrl = {3'b000,3'b000,2'b00, valid_shift[3],2'b00, valid_shift[0]};
+    end
 
+endmodule
 
 
 module weight_pipeline_ctrl_nn #(
     parameter N_MACS = 4
+
 )(
-    input  wire         clk,
-    input  wire         rst,
-    input  wire         start,
-    input  wire [2:0]   mode,       // 0:idle 1:load 2:layer
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
 
-    output reg  [N_MACS-1:0] weight_ctrl,
-    output reg  [2:0]        load,
-    output reg               busy,
-    output reg               load_ready,
-    output reg               layer_ready
+    input  wire [2:0]      mode, // 0: idle, 1: load weights, 2: layering
+
+    output reg  [N_MACS-1:0] weight_ctrl, 
+    output reg  [2:0] load,
+    output reg        busy,
+    output reg  load_ready,
+    output reg  layer_ready       
 );
-    localparam IDLE  = 2'd0;
-    localparam LOAD  = 2'd1;
-    localparam LAYER = 2'd2;
+// FSM states
+localparam IDLE  = 2'd0;
+localparam LOAD  = 2'd1;
+localparam LAYER = 2'd2;
 
-    reg [1:0] state, next_state;
-    reg [2:0] prev_mode;
-    reg [2:0] load_pulse;
+// masks for N_MACS (for N_MACS==4 yields 4'b0011 and 4'b1100)
+localparam integer HALF_W = N_MACS / 2;
+localparam [N_MACS-1:0] LOAD_MASK  = ((1 << HALF_W) - 1);
+localparam [N_MACS-1:0] LAYER_MASK = (LOAD_MASK << HALF_W);
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            state      <= IDLE;
-            prev_mode  <= 3'd0;
-            load_pulse <= 3'b000;
-        end else begin
-            state      <= next_state;
-            load_pulse <= 3'b000;
-            if (mode != prev_mode) begin
-                if      (mode == 3'd1) load_pulse <= 3'b001;
-                else if (mode == 3'd2) load_pulse <= 3'b010;
-            end
-            prev_mode <= mode;
+reg [1:0] state, next_state;
+reg [2:0] prev_mode;
+reg [2:0] load_pulse;
+
+
+// state register and remember previous mode
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        state     <= IDLE;
+        prev_mode <= 3'd0;
+        load_pulse <= 3'b000;
+    end else begin
+        state     <= next_state;
+        load_pulse <= 3'b000;
+        if (mode != prev_mode) begin  
+            if (mode == 3'd1)      load_pulse <= 3'b001; 
+            else if (mode == 3'd2) load_pulse <= 3'b010; 
         end
-    end
 
-    always @(*) begin
-        next_state = state;
-        if (mode == 3'd0)          next_state = IDLE;
-        else if (mode != prev_mode) begin
-            case (mode)
-                3'd1:    next_state = LOAD;
-                3'd2:    next_state = LAYER;
-                default: next_state = state;
-            endcase
-        end
+        prev_mode <= mode;
     end
-
-    always @(*) begin
-        weight_ctrl = {N_MACS{1'b0}};
-        busy        = 1'b0;
-        load_ready  = 1'b0;
-        layer_ready = 1'b0;
-        load        = load_pulse;
-        case (state)
-            LOAD:  begin
-                weight_ctrl = {N_MACS{1'b1}};  // all 4 MACs receive weights
-                load_ready  = 1'b1;
-                busy        = 1'b1;
-            end
-            LAYER: begin
-                weight_ctrl = {N_MACS{1'b0}};  // no weights during readout
-                layer_ready = 1'b1;
-                busy        = 1'b1;
-            end
-            default: ;
+end
+// next state logic
+always @(*) begin
+    next_state = state;
+    if (mode == 3'd0) begin
+        next_state = IDLE;
+    end else if (mode != prev_mode) begin
+        case (mode)
+            3'd1: next_state = LOAD;
+            3'd2: next_state = LAYER;
+            default: next_state = state;
         endcase
     end
+end
+
+// outputs based on current state
+always @(*) begin
+    weight_ctrl = {N_MACS{1'b0}};
+    busy        = 1'b0;
+    load_ready = 1'b0;
+    layer_ready = 1'b0;
+    load        = load_pulse; 
+    case (state)
+        IDLE: begin
+            weight_ctrl = {N_MACS{1'b0}};
+            busy        = 1'b0;
+        end
+        LOAD: begin
+            weight_ctrl = LOAD_MASK;   // 4'b0011 
+            load_ready = 1'b1;
+            busy        = 1'b1;
+        end
+        LAYER: begin
+            weight_ctrl = LAYER_MASK;  //  4'b1100 
+            layer_ready = 1'b1;
+            busy        = 1'b1;
+        end
+        default: begin
+            weight_ctrl = {N_MACS{1'b0}};
+
+            busy        = 1'b0;
+        end
+    endcase
+end
 
 endmodule
-
 
 module tile_ctrl_nn #(
     parameter N_MACS = 4
