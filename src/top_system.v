@@ -12,16 +12,11 @@ module top_system #(
     // Clear signal
     input  wire                    clear_all,
     
-    // ========================================
-    // Weight BRAM Interface
-    // ========================================
     output wire [$clog2(MEM_DEPTH)-1:0]  weight_bram_addr,
     output wire                          weight_bram_en,
     input  wire [N_MACS*ACC_W-1:0]       weight_bram_dout,  // 64-bit
     
-    // ========================================
-    // Input BRAM Interface
-    // ========================================
+
     output wire [$clog2(MEM_DEPTH)-1:0]  input_bram_addr,
     output wire                          input_bram_en,
     input  wire [ACC_W-1:0]              input_bram_dout,   // 16-bit
@@ -74,6 +69,12 @@ module top_system #(
     wire start_input;
     wire [2:0] mode;
 
+    //tile control
+    wire next_tile;
+    wire next_tile_ready;
+    wire [2:0] acc_sel_tile;
+
+
 
     top_ctrl u_top_ctrl (
         .clk                    (clk),
@@ -81,8 +82,9 @@ module top_system #(
         .start                  (start),
         .valid_ctrl_busy        (valid_pipeline_busy),
         .layer_ctrl_busy        (layering_busy),
+        .next_tile_ready        (next_tile_ready),
 
-
+        .next_tile             (next_tile),
         .mode                   (mode),
         .start_valid_pipeline   (start_valid_pipeline),
         .start_weights          (start_weights),
@@ -91,7 +93,16 @@ module top_system #(
         .done                   (done)
     );
 
-    
+    tile_ctrl u_tile_ctrl (
+        .clk            (clk),
+        .rst            (rst),
+        .next_tile      (next_tile),
+
+        .next_tile_ready(next_tile_ready),
+        .acc_sel_tile (acc_sel_tile)
+
+    );
+
     // Valid pipeline control
     valid_pipeline_ctrl u_valid_pipeline_ctrl (
         .clk        (clk),
@@ -198,6 +209,8 @@ module top_system #(
         .w_1        (w_1),
         .w_2        (w_2),
         .w_3        (w_3),
+
+        .acc_sel    (acc_sel_tile),
         
         // Outputs
         .acc_out_0  (acc_out_0),

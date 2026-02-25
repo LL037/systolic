@@ -1,5 +1,5 @@
 
-module top_ctrl_nn #(
+module top_ctrl #(
     parameter N = 8   // Matrix dimension (must be divisible by 4)
 )(
     input  wire       clk,
@@ -49,6 +49,7 @@ module top_ctrl_nn #(
             start_layering       <= 1'b0;
             start_weights        <= 1'b0;
             start_input          <= 1'b0;
+            next_tile            <= 1'b0;
             done                 <= 1'b0;
         end else begin
             // Default: 1-cycle pulses
@@ -59,7 +60,7 @@ module top_ctrl_nn #(
             done                 <= 1'b0;
 
             case (state)
-                // ---------------------------------------------------------
+
                 S_IDLE: begin
                     mode          <= MODE_IDLE;
         
@@ -112,8 +113,6 @@ module top_ctrl_nn #(
                         state <= S_DONE;
                 end
 
-
-                // ---------------------------------------------------------
                 S_DONE: begin
                     done  <= 1'b1;
                     state <= S_IDLE;
@@ -127,7 +126,7 @@ module top_ctrl_nn #(
 endmodule
 
 
-module layering_pipeline_ctrl_nn (
+module layering_pipeline_ctrl (
     input  wire       clk,
     input  wire       rst,
     input  wire       start,
@@ -182,7 +181,7 @@ module layering_pipeline_ctrl_nn (
 endmodule
 
 
-module valid_pipeline_ctrl_nn (
+module valid_pipeline_ctrl (
     input  wire       clk,
     input  wire       rst,
     input  wire       start,
@@ -231,7 +230,7 @@ module valid_pipeline_ctrl_nn (
 endmodule
 
 
-module weight_pipeline_ctrl_nn #(
+module weight_pipeline_ctrl #(
     parameter N_MACS = 4
 
 )(
@@ -325,12 +324,13 @@ end
 
 endmodule
 
-module tile_ctrl_nn #(
+module tile_ctrl #(
     parameter N_MACS = 4
 )(
     input  wire        clk,
     input  wire        rst,
     input  wire        next_tile,
+
     output reg         next_tile_ready,
     output reg [2:0]   acc_sel_tile
 );

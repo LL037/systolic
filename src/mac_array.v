@@ -21,6 +21,8 @@ module mac_array #(
     input  wire signed [ACC_W-1:0]     w_1,        // Weight for MAC 1
     input  wire signed [ACC_W-1:0]     w_2,        // Weight for MAC 2
     input  wire signed [ACC_W-1:0]     w_3,        // Weight for MAC 3
+
+    input  wire [2:0]                    acc_sel,    // Accumulator select for each MAC
     
     // Final outputs
     output wire signed [ACC_W-1:0] acc_out_0,
@@ -56,7 +58,7 @@ module mac_array #(
     ) mac_0 (
         .clk(clk),
         .rst(rst),
-        .acc_sel(3'b000),
+        .acc_sel(acc_sel),
         .valid_ctrl(valid_ctrl_0),
         .weight_valid_in(valid_weight_in[0]),
         .clear(clear[0]),
@@ -78,7 +80,7 @@ module mac_array #(
     ) mac_1 (
         .clk(clk),
         .rst(rst),
-        .acc_sel(3'b000),
+        .acc_sel(acc_sel_tile),
         .valid_ctrl(valid_ctrl_1),
         .weight_valid_in(valid_weight_in[1]),
         .clear(clear[1]),

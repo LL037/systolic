@@ -65,7 +65,7 @@ module weight_mem_if #(
 )(
     input  wire                          clk,
     input  wire                          rst,
-    input  wire [2:0]                    load,
+    input  wire [2:0]                    load,  // 001 = load lower half, 010 = load upper half, 000 = idle
     output reg                           load_ready,
     output reg                           layer_ready,
     
