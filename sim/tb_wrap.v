@@ -10,7 +10,7 @@ module tb_design_1_wrapper;
 
     // Outputs
     wire busy;
-    wire [3:0] valid_out;
+
 
     // Instantiate the DUT
     design_1_wrapper uut (
@@ -18,8 +18,7 @@ module tb_design_1_wrapper;
         .clear_all(clear_all),
         .clk(clk),
         .rst(rst),
-        .start(start),
-        .valid_out(valid_out)
+        .start(start)
     );
 
     // Clock generation: 10ns period (100MHz)
@@ -50,7 +49,6 @@ module tb_design_1_wrapper;
 
         wait (busy == 0);
         $display("[%0t] busy deasserted", $time);
-        $display("[%0t] valid_out = %b", $time, valid_out);
 
         // Wait a few more cycles
         #100000;
@@ -70,7 +68,7 @@ module tb_design_1_wrapper;
 
         wait (busy == 1);
         wait (busy == 0);
-        $display("[%0t] Second run done, valid_out = %b", $time, valid_out);
+
 
         #100000;
         $display("=== Simulation Complete ===");

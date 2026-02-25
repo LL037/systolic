@@ -43,8 +43,8 @@ module mac_array_nn #(
     input  wire signed [ACC_W-1:0]   w_3,
 
     // acc_sel per MAC (same index for all MACs in same tile during tiled computation)
-    input  wire [2:0]                acc_sel_tile1,  // for mac_0, mac_1
-    input  wire [2:0]                acc_sel_tile2,  // for mac_2, mac_3
+    input  wire [2:0]                acc_sel_tile,  // for mac_0, mac_1, mac_2, mac_3
+
 
     // Accumulator outputs
     output wire signed [ACC_W-1:0]   acc_out_0,
@@ -53,6 +53,11 @@ module mac_array_nn #(
     output wire signed [ACC_W-1:0]   acc_out_3,
     output wire [N_MACS-1:0]         valid_out
 );
+    reg [2:0] acc_sel_reg;
+    always @(posedge clk) begin
+        if (rst) acc_sel_reg <= 3'b000;
+        else acc_sel_reg <= acc_sel_tile;
+    end
 
     // Pass-through wires between MACs (horizontal chain within each tile row)
     wire signed [ACC_W-1:0] a_out_0_to_1_p0;   // mac_0 a_out_0 -> mac_1 a_in_0
@@ -77,7 +82,7 @@ module mac_array_nn #(
         .valid_ctrl     (vc0),
         .weight_valid_in(valid_weight_in[0]),
         .clear          (clear[0]),
-        .acc_sel        (acc_sel_tile1),
+        .acc_sel        (acc_sel_reg),
         .a_in_0         (a_in),             // fresh activation input
         .a_in_1         (acc_out_2),        // layer phase: prev layer result
         .a_in_2         (a_out_1_to_0),     // layer phase: feedback from mac_1
@@ -96,7 +101,7 @@ module mac_array_nn #(
         .valid_ctrl     (vc1),
         .weight_valid_in(valid_weight_in[1]),
         .clear          (clear[1]),
-        .acc_sel        (acc_sel_tile1),
+        .acc_sel        (acc_sel_reg),
         .a_in_0         (a_out_0_to_1_p0),  // activation from mac_0
         .a_in_1         (a_out_0_to_1_p1),
         .a_in_2         (acc_out_3),         // layer phase: prev layer result
@@ -115,7 +120,7 @@ module mac_array_nn #(
         .valid_ctrl     (vc2),
         .weight_valid_in(valid_weight_in[2]),
         .clear          (clear[2]),
-        .acc_sel        (acc_sel_tile2),
+        .acc_sel        (3'b000),
         .a_in_0         (acc_out_0),         // layer phase: tile1 result
         .a_in_1         (a_out_3_to_2),      // feedback from mac_3
         .a_in_2         ({ACC_W{1'b0}}),
@@ -133,7 +138,7 @@ module mac_array_nn #(
         .valid_ctrl     (vc3),
         .weight_valid_in(valid_weight_in[3]),
         .clear          (clear[3]),
-        .acc_sel        (acc_sel_tile2),
+        .acc_sel        (3'b000),
         .a_in_0         (acc_out_1),         // layer phase: tile1 result
         .a_in_1         (a_out_2_to_3_p0),   // from mac_2
         .a_in_2         ({ACC_W{1'b0}}),

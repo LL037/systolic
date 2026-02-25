@@ -69,16 +69,14 @@ module top_system_nn #(
     wire signed [ACC_W-1:0] a_in;
     wire signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
 
-    wire [2:0] acc_sel_tile1;
-    wire [2:0] acc_sel_tile2;
+    wire [2:0] acc_sel_tile;
+
     wire [$clog2(N/2)-1:0] row_tile;
 
     assign busy        = valid_pipeline_busy | layering_busy;
     assign row_tile_out = row_tile;
 
-    // acc_sel comes from top_ctrl_nn row_tile counter
-    assign acc_sel_tile1 = {{(3-$clog2(N/2)){1'b0}}, row_tile};
-    assign acc_sel_tile2 = {{(3-$clog2(N/2)){1'b0}}, row_tile};
+
 
     // ------------------------------------------------------------------
     // Top-level sequencer
@@ -90,8 +88,7 @@ module top_system_nn #(
         .valid_ctrl_busy      (valid_pipeline_busy),
         .layer_ctrl_busy      (layering_busy),
         .row_tile             (row_tile),
-        .acc_sel_tile1        (),    // driven separately above
-        .acc_sel_tile2        (),
+        .acc_sel_tile      (acc_sel_tile),  // same for both tiles in this design
         .mode                 (mode),
         .start_valid_pipeline (start_valid_pipeline),
         .start_layering       (start_layering),
@@ -198,8 +195,7 @@ module top_system_nn #(
         .w_1            (w_1),
         .w_2            (w_2),
         .w_3            (w_3),
-        .acc_sel_tile1  (acc_sel_tile1),
-        .acc_sel_tile2  (acc_sel_tile2),
+        .acc_sel_tile   (acc_sel_tile),
         .acc_out_0      (acc_out_0),
         .acc_out_1      (acc_out_1),
         .acc_out_2      (acc_out_2),
