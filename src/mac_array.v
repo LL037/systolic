@@ -80,7 +80,7 @@ module mac_array #(
     ) mac_1 (
         .clk(clk),
         .rst(rst),
-        .acc_sel(acc_sel_tile),
+        .acc_sel(acc_sel),
         .valid_ctrl(valid_ctrl_1),
         .weight_valid_in(valid_weight_in[1]),
         .clear(clear[1]),

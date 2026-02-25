@@ -86,7 +86,7 @@ module top_ctrl #(
 
                 S_WAIT_LOAD_OFF: begin
                     mode <= MODE_LOAD;
-                    if (!valid_ctrl_busy && next_tile_ready)
+                    if (!valid_ctrl_busy)
                         state <= S_NEXT_LOAD_TILE;
                 end
                 // next tile 
