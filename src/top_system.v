@@ -42,8 +42,6 @@ module top_system_nn #(
     output wire signed [ACC_W-1:0]        acc_out_3,
     output wire [N_MACS-1:0]              valid_out,
 
-    // Current tile index (for external readout muxing if needed)
-    output wire [$clog2(N/2)-1:0]         row_tile_out
 );
 
     // Internal control wires
@@ -70,25 +68,20 @@ module top_system_nn #(
     wire signed [ACC_W-1:0] w_0, w_1, w_2, w_3;
 
     wire [2:0] acc_sel_tile;
+    wire next_tile;
+    wire next_tile_ready;
 
-    wire [$clog2(N/2)-1:0] row_tile;
+    assign busy = valid_pipeline_busy | layering_busy;
 
-    assign busy        = valid_pipeline_busy | layering_busy;
-    assign row_tile_out = row_tile;
-
-
-
-    // ------------------------------------------------------------------
-    // Top-level sequencer
-    // ------------------------------------------------------------------
     top_ctrl_nn #(.N(N)) u_top_ctrl (
         .clk                  (clk),
         .rst                  (rst),
         .start                (start),
         .valid_ctrl_busy      (valid_pipeline_busy),
         .layer_ctrl_busy      (layering_busy),
-        .row_tile             (row_tile),
-        .acc_sel_tile      (acc_sel_tile),  // same for both tiles in this design
+        .next_tile_ready     (next_tile_ready),
+
+        .next_tile      (next_tile), 
         .mode                 (mode),
         .start_valid_pipeline (start_valid_pipeline),
         .start_layering       (start_layering),
@@ -97,38 +90,43 @@ module top_system_nn #(
         .done                 (done)
     );
 
-    // ------------------------------------------------------------------
-    // Valid pipeline (activation window, N cycles)
-    // ------------------------------------------------------------------
+    tile_ctrl_nn #(.N(N)) u_tile_ctrl (
+        .clk        (clk),
+        .rst        (rst),
+        .next_tile   (next_tile),
+    
+        .next_tile_ready(next_tile_ready),
+        .acc_sel_tile (acc_sel_tile)
+    );
+
     valid_pipeline_ctrl_nn #(.N(N)) u_valid_pipeline (
         .clk        (clk),
         .rst        (rst),
         .start      (start_valid_pipeline),
         .load_ready (load_ready),
+
         .valid_ctrl (valid_ctrl_pipeline),
         .busy       (valid_pipeline_busy)
     );
 
-    // ------------------------------------------------------------------
-    // Layering pipeline (acc readout)
-    // ------------------------------------------------------------------
+
     layering_pipeline_ctrl_nn u_layering (
         .clk        (clk),
         .rst        (rst),
         .start      (start_layering),
         .layer_ready(layer_ready),
+
         .valid_ctrl (valid_ctrl_layering),
         .busy       (layering_busy)
     );
 
-    // ------------------------------------------------------------------
-    // Weight pipeline ctrl
-    // ------------------------------------------------------------------
+  
     weight_pipeline_ctrl_nn #(.N_MACS(N_MACS)) u_weight_ctrl (
         .clk        (clk),
         .rst        (rst),
         .start      (start_weights),
         .mode       (mode),
+
         .weight_ctrl(weight_ctrl),
         .load       (load_weights),
         .busy       (weight_busy),
@@ -136,9 +134,7 @@ module top_system_nn #(
         .layer_ready(layer_ready)
     );
 
-    // ------------------------------------------------------------------
-    // Weight memory interface (reuse original, supports 4-wide reads)
-    // ------------------------------------------------------------------
+
     weight_mem_if #(
         .N_MACS    (N_MACS),
         .DATA_W    (ACC_W),
@@ -159,9 +155,6 @@ module top_system_nn #(
         .w_3        (w_3)
     );
 
-    // ------------------------------------------------------------------
-    // Input memory interface
-    // ------------------------------------------------------------------
     input_mem_if #(
         .DATA_W    (ACC_W),
         .MEM_DEPTH (MEM_DEPTH)
@@ -176,9 +169,6 @@ module top_system_nn #(
         .a_out     (a_in)
     );
 
-    // ------------------------------------------------------------------
-    // MAC array
-    // ------------------------------------------------------------------
     mac_array_nn #(
         .W      (W),
         .ACC_W  (ACC_W),
