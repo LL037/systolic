@@ -1,4 +1,4 @@
-module top_system #(
+module top_system_nn #(
     parameter W      = 8,
     parameter ACC_W  = 16,
     parameter N_MACS = 4,
@@ -73,6 +73,7 @@ module top_system #(
     wire next_tile;
     wire next_tile_ready;
     wire [2:0] acc_sel_tile;
+    wire load_tile_done;
 
 
 
@@ -83,6 +84,7 @@ module top_system #(
         .valid_ctrl_busy        (valid_pipeline_busy),
         .layer_ctrl_busy        (layering_busy),
         .next_tile_ready        (next_tile_ready),
+        .load_tile_done         (load_tile_done),
 
         .next_tile             (next_tile),
         .mode                   (mode),
@@ -99,7 +101,8 @@ module top_system #(
         .next_tile      (next_tile),
 
         .next_tile_ready(next_tile_ready),
-        .acc_sel_tile (acc_sel_tile)
+        .acc_sel_tile (acc_sel_tile),
+        .load_tile_done(load_tile_done)
 
     );
 

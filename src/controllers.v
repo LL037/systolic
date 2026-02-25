@@ -10,6 +10,7 @@ module top_ctrl #(
     input  wire       valid_ctrl_busy,
     input  wire       layer_ctrl_busy,
     input  wire       next_tile_ready,
+    input  wire       load_tile_done,
 
     output reg                    next_tile,     
     output reg  [2:0]             mode,          // 0:idle 1:load 2:layer
@@ -57,6 +58,7 @@ module top_ctrl #(
             start_layering       <= 1'b0;
             start_weights        <= 1'b0;
             start_input          <= 1'b0;
+            next_tile            <= 1'b0;
             done                 <= 1'b0;
 
             case (state)
@@ -89,10 +91,14 @@ module top_ctrl #(
                 end
                 // next tile 
                 S_NEXT_LOAD_TILE: begin
-                    mode <= MODE_LOAD;
+                    mode      <= MODE_LOAD;
                     next_tile <= 1'b1;
-                    if (!valid_ctrl_busy)
-                        state <= S_ISSUE_LOAD;
+                    if (!valid_ctrl_busy) begin
+                        if (load_tile_done)      
+                            state <= S_ISSUE_LAYER;
+                        else
+                            state <= S_ISSUE_LOAD;
+                    end
                 end
 
                 S_ISSUE_LAYER: begin
@@ -325,14 +331,15 @@ end
 endmodule
 
 module tile_ctrl #(
-    parameter N_MACS = 4
+    parameter N_MACS = 8
 )(
     input  wire        clk,
     input  wire        rst,
     input  wire        next_tile,
 
     output reg         next_tile_ready,
-    output reg [2:0]   acc_sel_tile
+    output reg [2:0]   acc_sel_tile,
+    output reg         load_tile_done    
 );
 
     localparam IDLE  = 2'd0;
@@ -364,17 +371,21 @@ module tile_ctrl #(
         if (rst) begin
             tile_cnt        <= 3'd0;
             acc_sel_tile    <= 3'd0;
-            next_tile_ready <= 1'b0;
+            next_tile_ready <= 1'b1;
+            load_tile_done  <= 1'b0;    
         end else begin
             next_tile_ready <= 1'b0;
+            load_tile_done  <= 1'b0;    
             case (state)
                 INCR: begin
                     acc_sel_tile <= tile_cnt;
                     
-                    if (tile_cnt == N_MACS - 1)
-                        tile_cnt <= 3'd0;
-                    else
+                    if (tile_cnt == N_MACS - 1) begin
+                        tile_cnt       <= 3'd0;
+                        load_tile_done <= 1'b1;  
+                    end else begin
                         tile_cnt <= tile_cnt + 3'd1;
+                    end
                 end
                 READY: begin
                     next_tile_ready <= 1'b1;
