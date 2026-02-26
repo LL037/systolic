@@ -1,0 +1,33 @@
+; Weight BRAM COE file
+; N=4, ACC_W=16, BRAM_W=64
+; Layout: each 64-bit row = {w[3],w[2],w[1],w[0]} (w[0] at bits[15:0])
+;
+; Layer1 (W1 = identity):
+;   addr 0: col0=[1,0,0,0]  tile0
+;   addr 1: col1=[0,1,0,0]  tile0
+;   addr 2: col2=[0,0,1,0]  tile1
+;   addr 3: col3=[0,0,0,1]  tile1
+; Layer2 (W2 = 2*identity), LAYER2_W_OFFSET=4:
+;   addr 4: col0=[2,0,0,0]  tile0
+;   addr 5: col1=[0,2,0,0]  tile0
+;   addr 6: col2=[0,0,2,0]  tile1
+;   addr 7: col3=[0,0,0,2]  tile1
+;
+memory_initialization_radix=16;
+memory_initialization_vector=
+0000000000000001,
+0000000000010000,
+0000000100000000,
+0001000000000000,
+0000000000000002,
+0000000000020000,
+0000000200000000,
+0002000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000,
+0000000000000000;

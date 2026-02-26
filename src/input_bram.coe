@@ -1,3 +1,10 @@
+; Input BRAM COE file
+; N=4, ACC_W=16, BRAM_W=64
+; Layout: each 64-bit row = {x[3],x[2],x[1],x[0]} (x[0] at bits[15:0])
+;
+; addr 0: Layer1 input x1=[3,5,7,9]  (LAYER1_I_OFFSET=0)
+; addr 1: Layer2 input x2=[1,2,3,4]  (LAYER2_I_OFFSET=1)
+;
 memory_initialization_radix=16;
 memory_initialization_vector=
 0009000700050003,
