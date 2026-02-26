@@ -124,7 +124,7 @@ module top_system_nn #(
         .rst        (rst),
         .start      (start_valid_pipeline),
         .load_ready (load_ready),
-
+        .layer_sel  (layer_sel_tile),
         .valid_ctrl (valid_ctrl_pipeline),
         .busy       (valid_pipeline_busy)
     );

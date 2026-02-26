@@ -1,4 +1,3 @@
-
 module top_ctrl #(
     parameter N = 8   // Matrix dimension (must be divisible by 4)
 )(
@@ -197,53 +196,79 @@ module layering_pipeline_ctrl (
 endmodule
 
 
-module valid_pipeline_ctrl (
+
+module valid_pipeline_ctrl #(
+    parameter integer N = 4   // must match system N
+)(
     input  wire       clk,
     input  wire       rst,
     input  wire       start,
     input  wire       load_ready,
-    output reg  [11:0] valid_ctrl, 
-    output reg        busy        
+    input  wire       layer_sel,      // 0=layer1 N+1 cycles, 1=layer2 N cycles
+    output reg  [11:0] valid_ctrl,
+    output reg        busy
 );
+    // layer1 diagonal needs N+1 cycles (mac0 rows 0..N, mac1 rows 0..N staggered)
+    // layer2 simultaneous needs N cycles
+    localparam integer CNT_L1 = N + 1;
+    localparam integer CNT_L2 = N;
 
-    reg [5:0] valid_shift;
-    reg [1:0] start_tok;   // CHANGED: 2-bit token "11"
-    reg       armed;
+    reg [$clog2(N+2)-1:0] cnt;
+    reg                    running;
+    reg                    armed;
+    reg                    ls_lat;   // latched layer_sel at start
 
     always @(posedge clk) begin
         if (rst) begin
-            valid_shift <= 6'b000000;
-            start_tok   <= 2'b00;
-            armed       <= 1'b0;
-            busy        <= 1'b0;
+            cnt       <= 0;
+            running   <= 1'b0;
+            armed     <= 1'b0;
+            ls_lat    <= 1'b0;
+            busy      <= 1'b0;
+            valid_ctrl <= 12'b0;
         end else begin
-            // latch a 2-cycle token on start
-            if (start) start_tok <= 2'b11;
+            valid_ctrl <= 12'b0;
 
-            // allow running once ready
-            if (load_ready) armed <= 1'b1;
-
-            if (armed || load_ready) begin
-                // inject token LSB into tap0 (gives 2 cycles of '1')
-                valid_shift[0] <= start_tok[0];
-                valid_shift[3] <= valid_shift[0];
-
-                // shift token down (natural decay in 2 cycles)
-                start_tok <= {1'b0, start_tok[1]};
+            if (start) begin
+                armed  <= 1'b1;
+                ls_lat <= layer_sel;
             end
 
-            busy <= (|start_tok) | valid_shift[0] | valid_shift[3];
+            if (armed && load_ready) begin
+                armed   <= 1'b0;
+                running <= 1'b1;
+                cnt     <= 0;
+            end
 
-            if (busy == 1'b0)
-                armed <= 1'b0;
+            if (running) begin
+                // mac0 valid on all cycles, mac1 starts 1 cycle later (diagonal skew)
+                // valid_ctrl[0]=mac0 input valid, valid_ctrl[3]=mac1 input valid
+                // For layer1: mac0 active cycles 0..N-1, mac1 active cycles 1..N
+                // For layer2: both mac2/mac3 active cycles 0..N-1 simultaneously
+                if (!ls_lat) begin
+                    // Layer1 diagonal
+                    valid_ctrl[0] <= (cnt < N)  ? 1'b1 : 1'b0;  // mac0: cycles 0..N-1
+                    valid_ctrl[3] <= (cnt > 0)  ? 1'b1 : 1'b0;  // mac1: cycles 1..N
+                end else begin
+                    // Layer2 simultaneous - mac2/mac3
+                    valid_ctrl[6]  <= (cnt < N) ? 1'b1 : 1'b0;
+                    valid_ctrl[9]  <= (cnt < N) ? 1'b1 : 1'b0;
+                end
+
+                if (cnt == (ls_lat ? CNT_L2 - 1 : CNT_L1 - 1)) begin
+                    running    <= 1'b0;
+                    cnt        <= 0;
+                end else begin
+                    cnt <= cnt + 1;
+                end
+            end
+
+            busy <= running || armed;
         end
     end
 
-    always @(*) begin
-        valid_ctrl = {3'b000,3'b000,2'b00, valid_shift[3],2'b00, valid_shift[0]};
-    end
-
 endmodule
+
 
 
 module weight_pipeline_ctrl #(
