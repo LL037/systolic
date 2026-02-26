@@ -38,9 +38,11 @@ module top_ctrl #(
         S_WAIT_LAY_ON    = 4'd6,
         S_WAIT_LAY_OFF   = 4'd7,
         S_NEXT_LAY_TILE  = 4'd8,
-        S_DONE           = 4'd9;
+        S_DONE           = 4'd9,
+        S_WAIT_TILE_RDY  = 4'd10;
 
     reg [3:0] state;
+    reg        load_tile_done_lat;  // latch to catch 1-cycle pulse
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -52,6 +54,7 @@ module top_ctrl #(
             start_input          <= 1'b0;
             next_tile            <= 1'b0;
             done                 <= 1'b0;
+            load_tile_done_lat   <= 1'b0;
         end else begin
             // Default: 1-cycle pulses
             start_valid_pipeline <= 1'b0;
@@ -60,6 +63,8 @@ module top_ctrl #(
             start_input          <= 1'b0;
             next_tile            <= 1'b0;
             done                 <= 1'b0;
+            // latch load_tile_done so 1-cycle pulse isn't missed
+            if (load_tile_done) load_tile_done_lat <= 1'b1;
 
             case (state)
 
@@ -86,19 +91,24 @@ module top_ctrl #(
 
                 S_WAIT_LOAD_OFF: begin
                     mode <= MODE_LOAD;
-                    if (!valid_ctrl_busy)
-                        state <= S_NEXT_LOAD_TILE;
+                    if (!valid_ctrl_busy) begin
+                        if (load_tile_done_lat) begin
+                            load_tile_done_lat <= 1'b0;
+                            state <= S_ISSUE_LAYER;
+                        end else
+                            state <= S_NEXT_LOAD_TILE;
+                    end
                 end
-                // next tile 
+                // pulse next_tile, then wait for tile_ctrl ack
                 S_NEXT_LOAD_TILE: begin
                     mode      <= MODE_LOAD;
                     next_tile <= 1'b1;
-                    if (!valid_ctrl_busy) begin
-                        if (load_tile_done)      
-                            state <= S_ISSUE_LAYER;
-                        else
-                            state <= S_ISSUE_LOAD;
-                    end
+                    state     <= S_WAIT_TILE_RDY;
+                end
+                S_WAIT_TILE_RDY: begin
+                    mode <= MODE_LOAD;
+                    if (next_tile_ready)
+                        state <= S_ISSUE_LOAD;
                 end
 
                 S_ISSUE_LAYER: begin
@@ -330,32 +340,48 @@ end
 
 endmodule
 
-module tile_ctrl #(
-    parameter N_MACS = 8
-)(
-    input  wire        clk,
-    input  wire        rst,
-    input  wire        next_tile,
 
-    output reg         next_tile_ready,
-    output reg [2:0]   acc_sel_tile,
-    output reg         load_tile_done    
+
+module tile_ctrl #(
+    parameter integer N            = 4,
+    parameter integer MACS_PER_ROW = 2,
+    parameter integer DATA_W       = 16,
+    parameter integer BRAM_W       = 64,
+    parameter integer MEM_DEPTH    = 256
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       next_tile,
+
+    output reg        next_tile_ready,
+    output reg        load_tile_done,
+
+    output reg  [$clog2(MEM_DEPTH)-1:0] weight_base_addr,
+    output reg  [$clog2(MEM_DEPTH)-1:0] input_base_addr,
+    output reg  [$clog2(N)-1:0]         acc_sel_tile,
+    output reg                           layer_sel        // 0=layer1, 1=layer2
 );
+
+    localparam integer WORDS_PER_BRAM    = BRAM_W / DATA_W;
+    localparam integer BRAM_ROWS_PER_COL = N / WORDS_PER_BRAM;
+    localparam integer TILE_BRAM_STRIDE  = MACS_PER_ROW * BRAM_ROWS_PER_COL;
+    localparam integer NUM_TILES         = N / MACS_PER_ROW;
+    localparam integer TOTAL_TILES       = NUM_TILES * 2;
+    localparam integer LAYER2_W_OFFSET   = NUM_TILES * TILE_BRAM_STRIDE;
+    localparam integer LAYER2_I_OFFSET   = (N + WORDS_PER_BRAM - 1) / WORDS_PER_BRAM;
 
     localparam IDLE  = 2'd0;
     localparam INCR  = 2'd1;
     localparam READY = 2'd2;
 
     reg [1:0] state, next_state;
-    reg [2:0] tile_cnt;
+    reg [$clog2(TOTAL_TILES)-1:0] tile_cnt;
 
-    // State register
     always @(posedge clk or posedge rst) begin
         if (rst) state <= IDLE;
         else     state <= next_state;
     end
 
-    // Next-state logic
     always @(*) begin
         next_state = state;
         case (state)
@@ -366,30 +392,45 @@ module tile_ctrl #(
         endcase
     end
 
-    // Output + counter
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            tile_cnt        <= 3'd0;
-            acc_sel_tile    <= 3'd0;
-            next_tile_ready <= 1'b1;
-            load_tile_done  <= 1'b0;    
+            tile_cnt         <= 0;
+            weight_base_addr <= 0;
+            input_base_addr  <= 0;
+            acc_sel_tile     <= 0;
+            layer_sel        <= 1'b0;
+            next_tile_ready  <= 1'b1;
+            load_tile_done   <= 1'b0;
         end else begin
             next_tile_ready <= 1'b0;
-            load_tile_done  <= 1'b0;    
+            load_tile_done  <= 1'b0;
+
             case (state)
                 INCR: begin
-                    acc_sel_tile <= tile_cnt;
-                    
-                    if (tile_cnt == N_MACS - 1) begin
-                        tile_cnt       <= 3'd0;
-                        load_tile_done <= 1'b1;  
+                    if (tile_cnt < NUM_TILES) begin
+                        layer_sel        <= 1'b0;
+                        weight_base_addr <= tile_cnt * TILE_BRAM_STRIDE;
+                        input_base_addr  <= 0;
+                        acc_sel_tile     <= tile_cnt[$clog2(N)-1:0];
                     end else begin
-                        tile_cnt <= tile_cnt + 3'd1;
+                        layer_sel        <= 1'b1;
+                        weight_base_addr <= LAYER2_W_OFFSET
+                                         + (tile_cnt - NUM_TILES) * TILE_BRAM_STRIDE;
+                        input_base_addr  <= LAYER2_I_OFFSET;
+                        acc_sel_tile     <= tile_cnt[$clog2(N)-1:0]
+                                         - NUM_TILES[$clog2(N)-1:0];
+                    end
+
+                    if (tile_cnt == TOTAL_TILES - 1) begin
+                        tile_cnt       <= 0;
+                        load_tile_done <= 1'b1;
+                    end else begin
+                        tile_cnt <= tile_cnt + 1;
                     end
                 end
-                READY: begin
-                    next_tile_ready <= 1'b1;
-                end
+
+                READY: next_tile_ready <= 1'b1;
+
                 default: ;
             endcase
         end

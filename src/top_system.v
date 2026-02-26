@@ -2,6 +2,7 @@ module top_system_nn #(
     parameter W      = 8,
     parameter ACC_W  = 16,
     parameter N_MACS = 4,
+    parameter N      = 4,   // matrix dimension
     parameter MEM_DEPTH = 256
 )(
     input  wire                    clk,
@@ -19,7 +20,7 @@ module top_system_nn #(
 
     output wire [$clog2(MEM_DEPTH)-1:0]  input_bram_addr,
     output wire                          input_bram_en,
-    input  wire [ACC_W-1:0]              input_bram_dout,   // 16-bit
+    input  wire [4*ACC_W-1:0]            input_bram_dout,   // 64-bit (BRAM_W fixed)
     
     // Status outputs
     output wire                    busy,
@@ -37,7 +38,11 @@ module top_system_nn #(
     wire [11:0] valid_ctrl_pipeline;
     wire [11:0] valid_ctrl_layering;
     wire [11:0] valid_ctrl = valid_ctrl_pipeline | valid_ctrl_layering;
-    wire [N_MACS-1:0] weight_ctrl;
+    wire [N_MACS-1:0] weight_ctrl_raw;  // from weight_pipeline_ctrl
+    // Route weight valid to correct MAC pair based on layer_sel_tile
+    wire [N_MACS-1:0] weight_ctrl = layer_sel_tile ? 
+                                    {2'b11, 2'b00} :   // layer2: mac2/mac3
+                                    {2'b00, 2'b11};    // layer1: mac0/mac1
 
     // busy wires
     wire weight_busy;
@@ -59,6 +64,12 @@ module top_system_nn #(
     wire load_ready;
     wire layer_ready;
 
+    // tile_ctrl → mem_if
+    wire [$clog2(MEM_DEPTH)-1:0] weight_base_addr_tile;
+    wire [$clog2(MEM_DEPTH)-1:0] input_base_addr_tile;
+    wire                          layer_sel_tile;
+    wire                          weight_mem_busy;
+
 
     assign busy = valid_pipeline_busy | layering_busy;
 
@@ -72,7 +83,7 @@ module top_system_nn #(
     //tile control
     wire next_tile;
     wire next_tile_ready;
-    wire [2:0] acc_sel_tile;
+    wire [1:0] acc_sel_tile;  // $clog2(N_MACS)=2 bits
     wire load_tile_done;
 
 
@@ -96,22 +107,24 @@ module top_system_nn #(
     );
 
     tile_ctrl u_tile_ctrl (
-        .clk            (clk),
-        .rst            (rst),
-        .next_tile      (next_tile),
-
-        .next_tile_ready(next_tile_ready),
-        .acc_sel_tile (acc_sel_tile),
-        .load_tile_done(load_tile_done)
-
+        .clk             (clk),
+        .rst             (rst),
+        .next_tile       (next_tile),
+        .next_tile_ready (next_tile_ready),
+        .load_tile_done  (load_tile_done),
+        .weight_base_addr(weight_base_addr_tile),
+        .input_base_addr (input_base_addr_tile),
+        .acc_sel_tile    (acc_sel_tile),
+        .layer_sel       (layer_sel_tile)
     );
 
     // Valid pipeline control
-    valid_pipeline_ctrl u_valid_pipeline_ctrl (
+    valid_pipeline_ctrl #(.N(N)) u_valid_pipeline_ctrl (
         .clk        (clk),
         .rst        (rst),
         .start      (start_valid_pipeline),
         .load_ready (load_ready),
+
         .valid_ctrl (valid_ctrl_pipeline),
         .busy       (valid_pipeline_busy)
     );
@@ -138,54 +151,52 @@ module top_system_nn #(
         .mode   (mode),
 
         //output
-        .weight_ctrl (weight_ctrl),
+        .weight_ctrl (weight_ctrl_raw),
         .load   (load_weights),
         .busy   (weight_busy),
         .load_ready (load_ready),
         .layer_ready ()
     );
     
-    // Weight memory interface (with BRAM ports)
+    // Weight memory interface
     weight_mem_if #(
-        .N_MACS    (N_MACS),
-        .DATA_W    (ACC_W),
-        .MEM_DEPTH (MEM_DEPTH)
+        .N          (N_MACS),
+        .MACS_PER_ROW(N_MACS/2),
+        .DATA_W     (ACC_W),
+        .MEM_DEPTH  (MEM_DEPTH)
     ) u_weight_mem_if (
-        .clk         (clk),
-        .rst         (rst),
-        .load        (load_weights),
-
-        // BRAM interface - directly to top ports
-        .bram_addr   (weight_bram_addr),
-        .bram_en     (weight_bram_en),
-        .bram_dout   (weight_bram_dout),
-
-        .load_ready  (),
-        .layer_ready (layer_ready),
-        .w_addr      (w_addr),
-        .w_0         (w_0),
-        .w_1         (w_1),
-        .w_2         (w_2),
-        .w_3         (w_3)
+        .clk        (clk),
+        .rst        (rst),
+        .start      (start_weights),
+        .base_addr  (weight_base_addr_tile),
+        .layer_sel  (layer_sel_tile),
+        .bram_addr  (weight_bram_addr),
+        .bram_en    (weight_bram_en),
+        .bram_dout  (weight_bram_dout),
+        .w0         (w_0),
+        .w1         (w_1),
+        .w2         (w_2),
+        .w3         (w_3),
+        .busy       (weight_mem_busy),
+        .load_ready (load_ready)
     );
 
 
-    // Input memory interface (with BRAM ports)
+    // Input memory interface
     input_mem_if #(
+        .N         (N_MACS),
         .DATA_W    (ACC_W),
         .MEM_DEPTH (MEM_DEPTH)
     ) u_input_mem_if (
         .clk       (clk),
         .rst       (rst),
-        .load_en   (start_input),
-
-        // BRAM interface - directly to top ports
+        .load_en   (valid_ctrl[0] | load_ready),  // pre-load on load_ready, then advance on valid
+        .base_addr (input_base_addr_tile),
         .bram_addr (input_bram_addr),
         .bram_en   (input_bram_en),
         .bram_dout (input_bram_dout),
-
-        .in_addr   (in_addr),
-        .a_out     (a_in)
+        .a_out     (a_in),
+        .in_idx    ()
     );
 
 
@@ -213,7 +224,7 @@ module top_system_nn #(
         .w_2        (w_2),
         .w_3        (w_3),
 
-        .acc_sel    (acc_sel_tile),
+        .acc_sel    ({1'b0, acc_sel_tile}),
         
         // Outputs
         .acc_out_0  (acc_out_0),
