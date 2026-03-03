@@ -1,5 +1,5 @@
 module top_ctrl #(
-    parameter N = 8   // Matrix dimension (must be divisible by 4)
+    parameter N = 4   // Matrix dimension (must be divisible by 4)
 )(
     input  wire       clk,
     input  wire       rst,
@@ -33,12 +33,11 @@ module top_ctrl #(
         S_WAIT_LOAD_ON   = 4'd2,
         S_WAIT_LOAD_OFF  = 4'd3,
         S_NEXT_LOAD_TILE = 4'd4,
-        S_ISSUE_LAYER    = 4'd5,
-        S_WAIT_LAY_ON    = 4'd6,
-        S_WAIT_LAY_OFF   = 4'd7,
-        S_NEXT_LAY_TILE  = 4'd8,
-        S_DONE           = 4'd9,
-        S_WAIT_TILE_RDY  = 4'd10;
+        S_DECIDE         = 4'd5,
+        S_ISSUE_LAYER    = 4'd6,
+        S_WAIT_LAY_ON    = 4'd7,
+        S_WAIT_LAY_OFF   = 4'd8,
+        S_DONE           = 4'd9;
 
     reg [3:0] state;
     reg        load_tile_done_lat;  // latch to catch 1-cycle pulse
@@ -91,23 +90,22 @@ module top_ctrl #(
                 S_WAIT_LOAD_OFF: begin
                     mode <= MODE_LOAD;
                     if (!valid_ctrl_busy) begin
-                        if (load_tile_done_lat) begin
-                            load_tile_done_lat <= 1'b0;
-                            state <= S_ISSUE_LAYER;
-                        end else
-                            state <= S_NEXT_LOAD_TILE;
+                        state <= S_DECIDE;
                     end
                 end
                 // pulse next_tile, then wait for tile_ctrl ack
                 S_NEXT_LOAD_TILE: begin
                     mode      <= MODE_LOAD;
                     next_tile <= 1'b1;
-                    state     <= S_WAIT_TILE_RDY;
+                    state     <= S_ISSUE_LOAD;
                 end
-                S_WAIT_TILE_RDY: begin
-                    mode <= MODE_LOAD;
-                    if (next_tile_ready)
-                        state <= S_ISSUE_LOAD;
+                S_DECIDE: begin
+                    mode <= MODE_IDLE;
+                    if (load_tile_done_lat) begin
+                            load_tile_done_lat <= 1'b0;
+                            state <= S_ISSUE_LAYER;
+                        end else
+                            state <= S_NEXT_LOAD_TILE;
                 end
 
                 S_ISSUE_LAYER: begin
@@ -196,43 +194,39 @@ module layering_pipeline_ctrl (
 endmodule
 
 
-
 module valid_pipeline_ctrl #(
-    parameter integer N = 4   // must match system N
+    parameter integer N = 4
 )(
-    input  wire       clk,
-    input  wire       rst,
-    input  wire       start,
-    input  wire       load_ready,
-    input  wire       layer_sel,      // 0=layer1 N+1 cycles, 1=layer2 N cycles
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        start,
+    input  wire        load_ready,
+
     output reg  [11:0] valid_ctrl,
-    output reg        busy
+    output reg         busy
 );
-    // layer1 diagonal needs N+1 cycles (mac0 rows 0..N, mac1 rows 0..N staggered)
-    // layer2 simultaneous needs N cycles
-    localparam integer CNT_L1 = N + 1;
-    localparam integer CNT_L2 = N;
+    // valid_ctrl bit mapping (layer1 only):
+    //   [0] = mac0 input valid  (cycles 0..N-1)
+    //   [3] = mac1 input valid  (cycles 1..N)
+
+    localparam integer CNT_MAX = N;   // N+1 cycles total (0..N)
 
     reg [$clog2(N+2)-1:0] cnt;
     reg                    running;
     reg                    armed;
-    reg                    ls_lat;   // latched layer_sel at start
 
-    always @(posedge clk) begin
+    always @(posedge clk or posedge rst) begin
         if (rst) begin
-            cnt       <= 0;
-            running   <= 1'b0;
-            armed     <= 1'b0;
-            ls_lat    <= 1'b0;
-            busy      <= 1'b0;
+            cnt        <= 0;
+            running    <= 1'b0;
+            armed      <= 1'b0;
             valid_ctrl <= 12'b0;
+            busy       <= 1'b0;
         end else begin
             valid_ctrl <= 12'b0;
 
-            if (start) begin
-                armed  <= 1'b1;
-                ls_lat <= layer_sel;
-            end
+            if (start)
+                armed <= 1'b1;
 
             if (armed && load_ready) begin
                 armed   <= 1'b0;
@@ -241,23 +235,12 @@ module valid_pipeline_ctrl #(
             end
 
             if (running) begin
-                // mac0 valid on all cycles, mac1 starts 1 cycle later (diagonal skew)
-                // valid_ctrl[0]=mac0 input valid, valid_ctrl[3]=mac1 input valid
-                // For layer1: mac0 active cycles 0..N-1, mac1 active cycles 1..N
-                // For layer2: both mac2/mac3 active cycles 0..N-1 simultaneously
-                if (!ls_lat) begin
-                    // Layer1 diagonal
-                    valid_ctrl[0] <= (cnt < N)  ? 1'b1 : 1'b0;  // mac0: cycles 0..N-1
-                    valid_ctrl[3] <= (cnt > 0)  ? 1'b1 : 1'b0;  // mac1: cycles 1..N
-                end else begin
-                    // Layer2 simultaneous - mac2/mac3
-                    valid_ctrl[6]  <= (cnt < N) ? 1'b1 : 1'b0;
-                    valid_ctrl[9]  <= (cnt < N) ? 1'b1 : 1'b0;
-                end
+                valid_ctrl[0] <= (cnt < N);   // mac0: cycles 0..N-1
+                valid_ctrl[3] <= (cnt > 0);   // mac1: cycles 1..N
 
-                if (cnt == (ls_lat ? CNT_L2 - 1 : CNT_L1 - 1)) begin
-                    running    <= 1'b0;
-                    cnt        <= 0;
+                if (cnt == CNT_MAX) begin
+                    running <= 1'b0;
+                    cnt     <= 0;
                 end else begin
                     cnt <= cnt + 1;
                 end
@@ -287,81 +270,81 @@ module weight_pipeline_ctrl #(
     output reg  load_ready,
     output reg  layer_ready       
 );
-// FSM states
-localparam IDLE  = 2'd0;
-localparam LOAD  = 2'd1;
-localparam LAYER = 2'd2;
+    // FSM states
+    localparam IDLE  = 2'd0;
+    localparam LOAD  = 2'd1;
+    localparam LAYER = 2'd2;
 
-// masks for N_MACS (for N_MACS==4 yields 4'b0011 and 4'b1100)
-localparam integer HALF_W = N_MACS / 2;
-localparam [N_MACS-1:0] LOAD_MASK  = ((1 << HALF_W) - 1);
-localparam [N_MACS-1:0] LAYER_MASK = (LOAD_MASK << HALF_W);
+    // masks for N_MACS (for N_MACS==4 yields 4'b0011 and 4'b1100)
+    localparam integer HALF_W = N_MACS / 2;
+    localparam [N_MACS-1:0] LOAD_MASK  = ((1 << HALF_W) - 1);
+    localparam [N_MACS-1:0] LAYER_MASK = (LOAD_MASK << HALF_W);
 
-reg [1:0] state, next_state;
-reg [2:0] prev_mode;
-reg [2:0] load_pulse;
+    reg [1:0] state, next_state;
+    reg [2:0] prev_mode;
+    reg [2:0] load_pulse;
 
 
-// state register and remember previous mode
-always @(posedge clk or posedge rst) begin
-    if (rst) begin
-        state     <= IDLE;
-        prev_mode <= 3'd0;
-        load_pulse <= 3'b000;
-    end else begin
-        state     <= next_state;
-        load_pulse <= 3'b000;
-        if (mode != prev_mode) begin  
-            if (mode == 3'd1)      load_pulse <= 3'b001; 
-            else if (mode == 3'd2) load_pulse <= 3'b010; 
+    // state register and remember previous mode
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state     <= IDLE;
+            prev_mode <= 3'd0;
+            load_pulse <= 3'b000;
+        end else begin
+            state     <= next_state;
+            load_pulse <= 3'b000;
+            if (mode != prev_mode) begin  
+                if (mode == 3'd1)      load_pulse <= 3'b001; 
+                else if (mode == 3'd2) load_pulse <= 3'b010; 
+            end
+
+            prev_mode <= mode;
         end
-
-        prev_mode <= mode;
     end
-end
-// next state logic
-always @(*) begin
-    next_state = state;
-    if (mode == 3'd0) begin
-        next_state = IDLE;
-    end else if (mode != prev_mode) begin
-        case (mode)
-            3'd1: next_state = LOAD;
-            3'd2: next_state = LAYER;
-            default: next_state = state;
+    // next state logic
+    always @(*) begin
+        next_state = state;
+        if (mode == 3'd0) begin
+            next_state = IDLE;
+        end else if (mode != prev_mode) begin
+            case (mode)
+                3'd1: next_state = LOAD;
+                3'd2: next_state = LAYER;
+                default: next_state = state;
+            endcase
+        end
+    end
+
+    // outputs based on current state
+    always @(*) begin
+        weight_ctrl = {N_MACS{1'b0}};
+        busy        = 1'b0;
+        load_ready = 1'b0;
+        layer_ready = 1'b0;
+        load        = load_pulse; 
+        case (state)
+            IDLE: begin
+                weight_ctrl = {N_MACS{1'b0}};
+                busy        = 1'b0;
+            end
+            LOAD: begin
+                weight_ctrl = LOAD_MASK;   // 4'b0011 
+                load_ready = 1'b1;
+                busy        = 1'b1;
+            end
+            LAYER: begin
+                weight_ctrl = LAYER_MASK;  //  4'b1100 
+                layer_ready = 1'b1;
+                busy        = 1'b1;
+            end
+            default: begin
+                weight_ctrl = {N_MACS{1'b0}};
+
+                busy        = 1'b0;
+            end
         endcase
     end
-end
-
-// outputs based on current state
-always @(*) begin
-    weight_ctrl = {N_MACS{1'b0}};
-    busy        = 1'b0;
-    load_ready = 1'b0;
-    layer_ready = 1'b0;
-    load        = load_pulse; 
-    case (state)
-        IDLE: begin
-            weight_ctrl = {N_MACS{1'b0}};
-            busy        = 1'b0;
-        end
-        LOAD: begin
-            weight_ctrl = LOAD_MASK;   // 4'b0011 
-            load_ready = 1'b1;
-            busy        = 1'b1;
-        end
-        LAYER: begin
-            weight_ctrl = LAYER_MASK;  //  4'b1100 
-            layer_ready = 1'b1;
-            busy        = 1'b1;
-        end
-        default: begin
-            weight_ctrl = {N_MACS{1'b0}};
-
-            busy        = 1'b0;
-        end
-    endcase
-end
 
 endmodule
 
@@ -370,8 +353,6 @@ endmodule
 module tile_ctrl #(
     parameter integer N            = 4,
     parameter integer MACS_PER_ROW = 2,
-    parameter integer DATA_W       = 16,
-    parameter integer BRAM_W       = 64,
     parameter integer MEM_DEPTH    = 256
 )(
     input  wire       clk,
@@ -383,24 +364,17 @@ module tile_ctrl #(
 
     output reg  [$clog2(MEM_DEPTH)-1:0] weight_base_addr,
     output reg  [$clog2(MEM_DEPTH)-1:0] input_base_addr,
-    output reg  [$clog2(N)-1:0]         acc_sel_tile,
-    output reg                           layer_sel        // 0=layer1, 1=layer2
+    output reg  [2:0]         acc_sel_tile
 );
 
-    localparam integer WORDS_PER_BRAM    = BRAM_W / DATA_W;
-    localparam integer BRAM_ROWS_PER_COL = N / WORDS_PER_BRAM;
-    localparam integer TILE_BRAM_STRIDE  = MACS_PER_ROW * BRAM_ROWS_PER_COL;
-    localparam integer NUM_TILES         = N / MACS_PER_ROW;
-    localparam integer TOTAL_TILES       = NUM_TILES * 2;
-    localparam integer LAYER2_W_OFFSET   = NUM_TILES * TILE_BRAM_STRIDE;
-    localparam integer LAYER2_I_OFFSET   = (N + WORDS_PER_BRAM - 1) / WORDS_PER_BRAM;
+    localparam integer NUM_TILES = N / MACS_PER_ROW;
 
     localparam IDLE  = 2'd0;
     localparam INCR  = 2'd1;
     localparam READY = 2'd2;
 
     reg [1:0] state, next_state;
-    reg [$clog2(TOTAL_TILES)-1:0] tile_cnt;
+    reg [$clog2(NUM_TILES)-1:0] tile_cnt;
 
     always @(posedge clk or posedge rst) begin
         if (rst) state <= IDLE;
@@ -410,10 +384,10 @@ module tile_ctrl #(
     always @(*) begin
         next_state = state;
         case (state)
-            IDLE:  if (next_tile) next_state = INCR;
-            INCR:                 next_state = READY;
-            READY:                next_state = IDLE;
-            default:              next_state = IDLE;
+            IDLE:    if (next_tile) next_state = INCR;
+            INCR:                   next_state = READY;
+            READY:                  next_state = IDLE;
+            default:                next_state = IDLE;
         endcase
     end
 
@@ -423,7 +397,6 @@ module tile_ctrl #(
             weight_base_addr <= 0;
             input_base_addr  <= 0;
             acc_sel_tile     <= 0;
-            layer_sel        <= 1'b0;
             next_tile_ready  <= 1'b1;
             load_tile_done   <= 1'b0;
         end else begin
@@ -432,29 +405,21 @@ module tile_ctrl #(
 
             case (state)
                 INCR: begin
-                    if (tile_cnt < NUM_TILES) begin
-                        layer_sel        <= 1'b0;
-                        weight_base_addr <= tile_cnt * TILE_BRAM_STRIDE;
-                        input_base_addr  <= 0;
-                        acc_sel_tile     <= tile_cnt[$clog2(N)-1:0];
-                    end else begin
-                        layer_sel        <= 1'b1;
-                        weight_base_addr <= LAYER2_W_OFFSET
-                                         + (tile_cnt - NUM_TILES) * TILE_BRAM_STRIDE;
-                        input_base_addr  <= LAYER2_I_OFFSET;
-                        acc_sel_tile     <= tile_cnt[$clog2(N)-1:0]
-                                         - NUM_TILES[$clog2(N)-1:0];
-                    end
+                    weight_base_addr <= tile_cnt;
+                    input_base_addr  <= 0;
+                    acc_sel_tile     <= tile_cnt;
+                end
 
-                    if (tile_cnt == TOTAL_TILES - 1) begin
-                        tile_cnt       <= 0;
+                READY: begin
+                    next_tile_ready <= 1'b1;
+
+                    if (tile_cnt == NUM_TILES - 1) begin
                         load_tile_done <= 1'b1;
+                        tile_cnt       <= 0;
                     end else begin
                         tile_cnt <= tile_cnt + 1;
                     end
                 end
-
-                READY: next_tile_ready <= 1'b1;
 
                 default: ;
             endcase
