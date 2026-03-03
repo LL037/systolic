@@ -1,0 +1,276 @@
+// ============================================================
+// input_mem_if.v  (fixed)
+// Fixes:
+//   1. flush on base_addr change → clears row_buf, resets indices
+//   2. in_idx delayed by one to align with a_out
+// ============================================================
+module input_mem_if #(
+    parameter integer N          = 4,
+    parameter integer DATA_W     = 16,
+    parameter integer BRAM_W     = 64,
+    parameter integer MEM_DEPTH  = 256
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       load_en,
+    input  wire [$clog2(MEM_DEPTH)-1:0] base_addr,
+
+    output reg  [$clog2(MEM_DEPTH)-1:0] bram_addr,
+    output wire                          bram_en,
+    input  wire [BRAM_W-1:0]             bram_dout,
+
+    output reg  [DATA_W-1:0]             a_out,
+    output reg  [$clog2(N)-1:0]          in_idx
+);
+
+    localparam integer WORDS_PER_BRAM = BRAM_W / DATA_W;   // 4
+
+    assign bram_en = ~rst;
+
+    reg [$clog2(N)-1:0]              word_idx;
+    reg [$clog2(WORDS_PER_BRAM)-1:0] slot_idx;
+    reg [BRAM_W-1:0]                 row_buf;
+
+    // row address within BRAM
+    wire [$clog2(MEM_DEPTH)-1:0] row_idx = word_idx >> $clog2(WORDS_PER_BRAM);
+
+    // FIX 1: detect base_addr change for flush
+    reg [$clog2(MEM_DEPTH)-1:0] base_addr_r;
+    wire flush = (base_addr != base_addr_r);
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            word_idx     <= 0;
+            slot_idx     <= 0;
+            bram_addr    <= 0;
+            row_buf      <= 0;
+            a_out        <= 0;
+            in_idx       <= 0;
+            base_addr_r  <= 0;
+        end else begin
+            base_addr_r <= base_addr;
+
+            // FIX 1: flush on tile switch — clear stale row_buf & reset pointers
+            if (flush) begin
+                word_idx  <= 0;
+                slot_idx  <= 0;
+                row_buf   <= 0;
+                bram_addr <= base_addr;
+            end else begin
+                row_buf <= bram_dout;
+
+                if (load_en) begin
+                    // FIX 2: in_idx tracks word_idx of the *previous* cycle
+                    //         because a_out comes from row_buf which is one cycle old
+                    a_out  <= row_buf[slot_idx * DATA_W +: DATA_W];
+                    in_idx <= (word_idx == 0) ? 0 : word_idx - 1;
+
+                    if (word_idx == N - 1) begin
+                        word_idx  <= 0;
+                        slot_idx  <= 0;
+                        bram_addr <= base_addr;
+                    end else begin
+                        word_idx <= word_idx + 1;
+                        if (slot_idx == WORDS_PER_BRAM - 1) begin
+                            slot_idx  <= 0;
+                            bram_addr <= base_addr + row_idx + 1;
+                        end else begin
+                            slot_idx <= slot_idx + 1;
+                        end
+                    end
+                end else begin
+                    bram_addr <= base_addr + row_idx;
+                end
+            end
+        end
+    end
+
+endmodule
+
+
+// ============================================================
+// weight_mem_if.v  (fixed)
+// Fixes:
+//   1. Added P_WAIT state after IDLE so BRAM has one cycle to
+//      respond before first latch in P_RD_COL0 / P_RD_COL1
+//   2. BRAM_ROWS_PER_COL==1 edge case: rd_cnt < 0 condition
+//      guarded → reads exactly one row then advances
+//   3. load_ready asserted one cycle earlier (last RD_COL1 row
+//      minus one) so MAC has setup time before P_DIAG starts
+//   4. out_cnt width bumped to $clog2(N+2) for layer1 safety
+// ============================================================
+module weight_mem_if #(
+    parameter integer N            = 4,
+    parameter integer MACS_PER_ROW = 2,
+    parameter integer DATA_W       = 16,
+    parameter integer BRAM_W       = 64,
+    parameter integer MEM_DEPTH    = 256
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+    input  wire [$clog2(MEM_DEPTH)-1:0] base_addr,
+    input  wire                          layer_sel,
+
+    output reg  [$clog2(MEM_DEPTH)-1:0] bram_addr,
+    output wire                          bram_en,
+    input  wire [BRAM_W-1:0]             bram_dout,
+
+    output reg  [DATA_W-1:0]             w0,
+    output reg  [DATA_W-1:0]             w1,
+    output reg  [DATA_W-1:0]             w2,
+    output reg  [DATA_W-1:0]             w3,
+
+    output reg                           busy,
+    output reg                           load_ready
+);
+
+    localparam integer WORDS_PER_BRAM    = BRAM_W / DATA_W;
+    localparam integer BRAM_ROWS_PER_COL = (N + WORDS_PER_BRAM - 1) / WORDS_PER_BRAM; // ceiling
+
+    // FIX 1: added P_WAIT between IDLE and RD_COL0/RD_COL1
+    localparam P_IDLE     = 3'd0;
+    localparam P_WAIT_C0  = 3'd1;   // wait one cycle for BRAM to respond (col0 addr)
+    localparam P_RD_COL0  = 3'd2;
+    localparam P_WAIT_C1  = 3'd3;   // wait one cycle for BRAM to respond (col1 addr)
+    localparam P_RD_COL1  = 3'd4;
+    localparam P_DIAG     = 3'd5;
+
+    reg [DATA_W-1:0] col0_buf [0:N-1];
+    reg [DATA_W-1:0] col1_buf [0:N-1];
+
+    reg [2:0]                              phase;
+    // FIX 2: use $clog2(BRAM_ROWS_PER_COL+2) to be safe when BRAM_ROWS_PER_COL==1
+    reg [$clog2(BRAM_ROWS_PER_COL+2)-1:0] rd_cnt;
+    // FIX 4: out_cnt needs to reach N (layer1 counts 0..N), so $clog2(N+2)
+    reg [$clog2(N+2)-1:0]                  out_cnt;
+
+    assign bram_en = ~rst;
+
+    integer i;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            phase      <= P_IDLE;
+            rd_cnt     <= 0;
+            out_cnt    <= 0;
+            bram_addr  <= 0;
+            w0 <= 0; w1 <= 0; w2 <= 0; w3 <= 0;
+            busy       <= 1'b0;
+            load_ready <= 1'b0;
+            for (i = 0; i < N; i = i + 1) begin
+                col0_buf[i] <= 0;
+                col1_buf[i] <= 0;
+            end
+        end else begin
+            load_ready <= 1'b0;     // default: clear every cycle
+
+            case (phase)
+
+                // -----------------------------------------------
+                P_IDLE: begin
+                    busy <= 1'b0;
+                    if (start) begin
+                        bram_addr <= base_addr;         // issue col0 row0 address
+                        rd_cnt    <= 0;
+                        busy      <= 1'b1;
+                        phase     <= P_WAIT_C0;         // FIX 1: wait one cycle
+                    end
+                end
+
+                // -----------------------------------------------
+                // FIX 1: BRAM latency wait — data for base_addr arrives next cycle
+                P_WAIT_C0: begin
+                    phase <= P_RD_COL0;
+                end
+
+                // -----------------------------------------------
+                P_RD_COL0: begin
+                    // Latch bram_dout into col0_buf
+                    begin : latch0
+                        integer w;
+                        for (w = 0; w < WORDS_PER_BRAM; w = w + 1)
+                            if (rd_cnt * WORDS_PER_BRAM + w < N)
+                                col0_buf[rd_cnt * WORDS_PER_BRAM + w] <= bram_dout[w*DATA_W +: DATA_W];
+                    end
+
+                    // FIX 2: guard against BRAM_ROWS_PER_COL==1 (rd_cnt<0 is always false)
+                    if (BRAM_ROWS_PER_COL > 1 && rd_cnt < BRAM_ROWS_PER_COL - 1) begin
+                        bram_addr <= base_addr + rd_cnt + 1;
+                        rd_cnt    <= rd_cnt + 1;
+                    end else begin
+                        // All col0 rows latched; issue col1 row0 address
+                        bram_addr <= base_addr + BRAM_ROWS_PER_COL;
+                        rd_cnt    <= 0;
+                        phase     <= P_WAIT_C1;         // FIX 1: wait for BRAM
+                    end
+                end
+
+                // -----------------------------------------------
+                P_WAIT_C1: begin
+                    phase <= P_RD_COL1;
+                end
+
+                // -----------------------------------------------
+                P_RD_COL1: begin
+                    begin : latch1
+                        integer w;
+                        for (w = 0; w < WORDS_PER_BRAM; w = w + 1)
+                            if (rd_cnt * WORDS_PER_BRAM + w < N)
+                                col1_buf[rd_cnt * WORDS_PER_BRAM + w] <= bram_dout[w*DATA_W +: DATA_W];
+                    end
+
+                    // FIX 3: assert load_ready one cycle BEFORE entering P_DIAG
+                    //         so MAC has one full cycle of setup time
+                    if (BRAM_ROWS_PER_COL > 1 && rd_cnt < BRAM_ROWS_PER_COL - 2) begin
+                        bram_addr <= base_addr + BRAM_ROWS_PER_COL + rd_cnt + 1;
+                        rd_cnt    <= rd_cnt + 1;
+                    end else if (BRAM_ROWS_PER_COL > 1 && rd_cnt == BRAM_ROWS_PER_COL - 2) begin
+                        // Second-to-last row: issue last addr, raise load_ready early
+                        bram_addr  <= base_addr + BRAM_ROWS_PER_COL + rd_cnt + 1;
+                        rd_cnt     <= rd_cnt + 1;
+                        load_ready <= 1'b1;             // FIX 3: early assert
+                    end else begin
+                        // Last row (or only row): done loading col1
+                        rd_cnt     <= 0;
+                        out_cnt    <= 0;
+                        load_ready <= 1'b1;             // also assert if only 1 row
+                        phase      <= P_DIAG;
+                    end
+                end
+
+                // -----------------------------------------------
+                P_DIAG: begin
+                    if (!layer_sel) begin
+                        // Layer1 diagonal feed: N+1 cycles (out_cnt = 0..N)
+                        w0 <= (out_cnt <= N-1) ? col0_buf[out_cnt] : {DATA_W{1'b0}};
+                        w1 <= (out_cnt >= 1)   ? col1_buf[out_cnt-1] : {DATA_W{1'b0}};
+                        w2 <= {DATA_W{1'b0}};
+                        w3 <= {DATA_W{1'b0}};
+                        if (out_cnt == N) begin
+                            out_cnt <= 0;
+                            phase   <= P_IDLE;
+                            busy    <= 1'b0;
+                        end else
+                            out_cnt <= out_cnt + 1;
+                    end else begin
+                        // Layer2 simultaneous feed: N cycles (out_cnt = 0..N-1)
+                        w0 <= {DATA_W{1'b0}};
+                        w1 <= {DATA_W{1'b0}};
+                        w2 <= col0_buf[out_cnt];
+                        w3 <= col1_buf[out_cnt];
+                        if (out_cnt == N-1) begin
+                            out_cnt <= 0;
+                            phase   <= P_IDLE;
+                            busy    <= 1'b0;
+                        end else
+                            out_cnt <= out_cnt + 1;
+                    end
+                end
+
+                default: phase <= P_IDLE;
+            endcase
+        end
+    end
+
+endmodule

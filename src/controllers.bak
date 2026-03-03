@@ -1,0 +1,369 @@
+module top_ctrl #(
+    parameter N = 4   // Matrix dimension (must be divisible by 4)
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+
+    // Handshakes from sub-controllers
+    input  wire       valid_ctrl_busy,
+    input  wire       layer_ctrl_busy,
+    input  wire       next_tile_ready,
+    input  wire       load_tile_done,
+
+    output reg                    next_tile,     
+    output reg  [2:0]             mode,          // 0:idle 1:load 2:layer
+    output reg                    start_valid_pipeline,
+    output reg                    start_layering,
+    output reg                    start_weights,
+    output reg                    start_input,
+    output reg                    done
+);
+
+    localparam NUM_TILES = N / 4;  // number of row_tile iterations
+
+    localparam [2:0]
+        MODE_IDLE  = 3'd0,
+        MODE_LOAD  = 3'd1,
+        MODE_LAYER = 3'd2;
+
+    localparam [3:0]
+        S_IDLE           = 4'd0,
+        S_ISSUE_LOAD     = 4'd1,
+        S_WAIT_LOAD_ON   = 4'd2,
+        S_WAIT_LOAD_OFF  = 4'd3,
+        S_NEXT_LOAD_TILE = 4'd4,
+        S_DECIDE         = 4'd5,
+        S_ISSUE_LAYER    = 4'd6,
+        S_WAIT_LAY_ON    = 4'd7,
+        S_WAIT_LAY_OFF   = 4'd8,
+        S_DONE           = 4'd9;
+
+    reg [3:0] state;
+    reg        load_tile_done_lat;  // latch to catch 1-cycle pulse
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state                <= S_IDLE;
+            mode                 <= MODE_IDLE;
+            start_valid_pipeline <= 1'b0;
+            start_layering       <= 1'b0;
+            start_weights        <= 1'b0;
+            start_input          <= 1'b0;
+            next_tile            <= 1'b0;
+            done                 <= 1'b0;
+            load_tile_done_lat   <= 1'b0;
+        end else begin
+            // Default: 1-cycle pulses
+            start_valid_pipeline <= 1'b0;
+            start_layering       <= 1'b0;
+            start_weights        <= 1'b0;
+            start_input          <= 1'b0;
+            next_tile            <= 1'b0;
+            done                 <= 1'b0;
+            // latch load_tile_done so 1-cycle pulse isn't missed
+            if (load_tile_done) load_tile_done_lat <= 1'b1;
+
+            case (state)
+
+                S_IDLE: begin
+                    mode          <= MODE_IDLE;
+        
+                    if (start && !valid_ctrl_busy && !layer_ctrl_busy)
+                        state <= S_ISSUE_LOAD;
+                end
+                // loading
+                S_ISSUE_LOAD: begin
+                    mode                 <= MODE_LOAD;
+                    start_weights        <= 1'b1;
+                    start_input          <= 1'b1;
+                    start_valid_pipeline <= 1'b1;
+                    state                <= S_WAIT_LOAD_ON;
+                end
+
+                S_WAIT_LOAD_ON: begin
+                    mode <= MODE_LOAD;
+                    if (valid_ctrl_busy)
+                        state <= S_WAIT_LOAD_OFF;
+                end
+
+                S_WAIT_LOAD_OFF: begin
+                    mode <= MODE_LOAD;
+                    if (!valid_ctrl_busy) begin
+                        state <= S_DECIDE;
+                    end
+                end
+                // pulse next_tile, then wait for tile_ctrl ack
+                S_NEXT_LOAD_TILE: begin
+                    mode      <= MODE_LOAD;
+                    next_tile <= 1'b1;
+                    state     <= S_ISSUE_LOAD;
+                end
+                S_DECIDE: begin
+                    mode <= MODE_IDLE;
+                    if (load_tile_done_lat) begin
+                            load_tile_done_lat <= 1'b0;
+                            state <= S_ISSUE_LAYER;
+                        end else
+                            state <= S_NEXT_LOAD_TILE;
+                end
+
+                S_ISSUE_LAYER: begin
+                    mode           <= MODE_LAYER;
+                    start_layering <= 1'b1;
+                    state          <= S_WAIT_LAY_ON;
+                end
+
+                S_WAIT_LAY_ON: begin
+                    mode <= MODE_LAYER;
+                    if (layer_ctrl_busy)
+                        state <= S_WAIT_LAY_OFF;
+                end
+
+                S_WAIT_LAY_OFF: begin
+                    mode <= MODE_LAYER;
+                    if (!layer_ctrl_busy)
+                        state <= S_DONE;
+                end
+
+                S_DONE: begin
+                    done  <= 1'b1;
+                    state <= S_IDLE;
+                end
+
+                default: state <= S_IDLE;
+            endcase
+        end
+    end
+
+endmodule
+
+
+module layering_pipeline_ctrl (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       start,
+    input  wire       layer_ready,   // handshake: only start when ready
+    output reg  [11:0] valid_ctrl,
+    output reg        busy
+);
+    localparam IDLE   = 4'd0;
+    localparam S_WAIT = 4'd1;   // NEW: wait for layer_ready after start
+    localparam S_LOAD0= 4'd2;
+    localparam S_SWAP0= 4'd4; 
+ 
+     
+    reg [3:0] state, next_state;
+
+    always @(posedge clk) begin
+        if (rst)
+            state <= IDLE;
+        else
+            state <= next_state;
+    end
+
+    always @(*) begin
+        next_state = state;
+        case (state)
+            IDLE:    next_state = start ? S_WAIT  : IDLE;
+            S_WAIT:  next_state = layer_ready ? S_LOAD0 : S_WAIT;
+
+            S_LOAD0: next_state = S_SWAP0;
+            S_SWAP0: next_state = IDLE;
+
+            default: next_state = IDLE;
+        endcase
+    end
+
+    always @(*) begin
+        valid_ctrl = 12'b000000000000;
+        case (state)
+            S_LOAD0: valid_ctrl = 12'b001001000000; 
+            S_SWAP0: valid_ctrl = 12'b010010000000;
+            default: valid_ctrl = 12'b000000000000;
+        endcase
+    end
+
+    always @(posedge clk) begin
+        if (rst)
+            busy <= 1'b0;
+        else
+            busy <= (next_state != IDLE);
+    end
+
+endmodule
+
+
+
+module valid_pipeline_ctrl #(
+    parameter integer N = 4
+)(
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        start,
+    input  wire        load_ready,
+    output reg  [11:0] valid_ctrl,
+    output reg         busy
+);
+    // Layer1 diagonal: N+1 total cycles
+    // mac0: cycles 0..N-1  (bit[0])
+    // mac1: cycles 1..N    (bit[3])
+    localparam integer CNT_MAX = N; // last cycle index = N, total N+1 cycles
+
+    reg [$clog2(N+2)-1:0] cnt;
+    reg                    running;
+    reg                    armed;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            cnt        <= 0;
+            running    <= 1'b0;
+            armed      <= 1'b0;
+            busy       <= 1'b0;
+            valid_ctrl <= 12'b0;
+        end else begin
+            valid_ctrl <= 12'b0;  // default: all zero
+
+            // Arm on start, wait for weights to be ready
+            if (start)
+                armed <= 1'b1;
+
+            if (armed && load_ready) begin
+                armed   <= 1'b0;
+                running <= 1'b1;
+                cnt     <= 0;
+            end
+
+            if (running) begin
+                // mac0: active cycle 0..N-1
+                valid_ctrl[0] <= (cnt < N) ? 1'b1 : 1'b0;
+                // mac1: active cycle 1..N (1-cycle diagonal skew)
+                valid_ctrl[3] <= (cnt > 0) ? 1'b1 : 1'b0;
+
+                if (cnt == CNT_MAX) begin
+                    running <= 1'b0;
+                    cnt     <= 0;
+                end else begin
+                    cnt <= cnt + 1;
+                end
+            end
+
+            busy <= running || armed;
+        end
+    end
+
+endmodule
+
+
+
+module weight_pipeline_ctrl #(
+    parameter integer N_MACS = 4
+)(
+    input  wire             clk,
+    input  wire             rst,
+    input  wire [2:0]       mode,          // 0 idle, 1 load, 2 layer
+
+    output reg  [N_MACS-1:0] valid_weight_in,
+    output reg               layer_ready    // 1-cycle pulse when entering MODE_LAYER
+);
+
+    localparam integer HALF_W = N_MACS/2;
+    localparam [N_MACS-1:0] LOAD_MASK  = (1<<HALF_W) - 1;           // e.g. 0011
+    localparam [N_MACS-1:0] LAYER_MASK = LOAD_MASK << HALF_W;       // e.g. 1100
+
+    reg [2:0] prev_mode;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            prev_mode   <= 3'd0;
+            load_ready  <= 1'b0;
+            layer_ready <= 1'b0;
+        end else begin
+            load_ready  <= 1'b0;
+            layer_ready <= 1'b0;
+
+            if (mode != prev_mode) begin
+                if (mode == 3'd1) load_ready  <= 1'b1;
+                if (mode == 3'd2) layer_ready <= 1'b1;
+            end
+            prev_mode <= mode;
+        end
+    end
+
+    always @(*) begin
+        valid_weight_in = {N_MACS{1'b0}};
+        case (mode)
+            3'd1: valid_weight_in = LOAD_MASK;
+            3'd2: valid_weight_in = LAYER_MASK;
+            default: valid_weight_in = {N_MACS{1'b0}};
+        endcase
+    end
+
+endmodule
+
+
+
+module tile_ctrl #(
+    parameter integer N            = 4,
+    parameter integer MACS_PER_ROW = 2,
+    parameter integer DATA_W       = 16,
+    parameter integer BRAM_W       = 64,
+    parameter integer MEM_DEPTH    = 256
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       kick,                // 原 next_tile：建议改名更语义化
+
+    output reg        tile_valid,          // 原 next_tile_ready
+    output reg        all_tiles_done,      // 原 load_tile_done
+
+    output reg  [$clog2(MEM_DEPTH)-1:0] weight_base_addr,
+    output reg  [$clog2(MEM_DEPTH)-1:0] input_base_addr,
+    output reg  [$clog2(N)-1:0]         acc_sel_tile
+);
+
+    localparam integer TOTAL_TILES = N / MACS_PER_ROW;
+
+    reg [$clog2(TOTAL_TILES)-1:0] tile_cnt;
+    reg running;
+
+    // 每个tile的地址步进（按你原公式保留）
+    localparam integer TILE_STRIDE = (N * DATA_W) / BRAM_W;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            tile_cnt         <= 0;
+            running          <= 1'b0;
+            tile_valid       <= 1'b0;
+            all_tiles_done   <= 1'b0;
+            weight_base_addr <= 0;
+            input_base_addr  <= 0;
+            acc_sel_tile     <= 0;
+        end else begin
+            tile_valid     <= 1'b0;
+            all_tiles_done <= 1'b0;
+
+            if (kick && !running) begin
+                // start a new tile sequence
+                running          <= 1'b1;
+                tile_cnt         <= 0;
+                weight_base_addr <= 0;
+                input_base_addr  <= 0;
+                acc_sel_tile     <= 0;
+                tile_valid       <= 1'b1;   // tile0 valid
+            end else if (running) begin
+                if (tile_cnt < TOTAL_TILES - 1) begin
+                    tile_cnt         <= tile_cnt + 1;
+                    weight_base_addr <= weight_base_addr + TILE_STRIDE;
+                    input_base_addr  <= input_base_addr  + TILE_STRIDE;
+                    acc_sel_tile     <= acc_sel_tile     + MACS_PER_ROW;
+                    tile_valid       <= 1'b1;            // next tile valid
+                end else begin
+                    running        <= 1'b0;
+                    all_tiles_done <= 1'b1;
+                end
+            end
+        end
+    end
+
+endmodule

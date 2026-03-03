@@ -7,7 +7,6 @@ module top_system_nn #(
 )(
     input  wire                    clk,
     input  wire                    rst,
-    
     input  wire                    start,
 
     // Clear signal
