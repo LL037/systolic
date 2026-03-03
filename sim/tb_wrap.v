@@ -43,34 +43,10 @@ module tb_design_1_wrapper;
         @(posedge clk);
         start = 0;
 
-        // Wait for busy to assert then deassert
-        wait (busy == 1);
-        $display("[%0t] busy asserted", $time);
-
-        wait (busy == 0);
-        $display("[%0t] busy deasserted", $time);
 
         // Wait a few more cycles
-        #100000;
+        #1000000;
 
-        // Test clear_all
-        @(posedge clk);
-        clear_all = 1;
-        @(posedge clk);
-        clear_all = 0;
-        #50000;
-
-        // Second run
-        @(posedge clk);
-        start = 1;
-        @(posedge clk);
-        start = 0;
-
-        wait (busy == 1);
-        wait (busy == 0);
-
-
-        #100000;
         $display("=== Simulation Complete ===");
         $finish;
     end

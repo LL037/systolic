@@ -1,4 +1,4 @@
-module top_system #(
+module top_system_nn #(
     parameter W      = 8,
     parameter ACC_W  = 16,
     parameter N_MACS = 4,
@@ -14,18 +14,18 @@ module top_system #(
     
 
    // Weight BRAM - port A
-    output wire [$clog2(MEM_DEPTH)-1:0]  weight_bram_addr_a,
+    output wire [7:0]  weight_bram_addr_a,
     output wire                          weight_bram_en_a,
-    input  wire [ACC_W-1:0]              weight_bram_dout_a,
+    input  wire [63:0]              weight_bram_dout_a, // 64-bit 
 
     // Weight BRAM - port B  
-    output wire [$clog2(MEM_DEPTH)-1:0]  weight_bram_addr_b,
+    output wire [7:0]  weight_bram_addr_b,  
     output wire                          weight_bram_en_b,
-    input  wire [ACC_W-1:0]              weight_bram_dout_b,
+    input  wire [63:0]              weight_bram_dout_b, // 64-bit 
 
-    output wire [$clog2(MEM_DEPTH)-1:0]  input_bram_addr,
-    output wire                          input_bram_en,
-    input  wire [ACC_W-1:0]              input_bram_dout,   // 16-bit
+    output wire [7:0]  input_bram_addr,
+    output wire        input_bram_en,
+    input  wire [15:0]  input_bram_dout,   // 16-bit
     
     // Status outputs
     output wire                    busy,
@@ -51,8 +51,8 @@ module top_system #(
     wire                           start_input;
 
     // ── tile ctrl ────────────────────────────────────────────────
-    wire [$clog2(MEM_DEPTH)-1:0]   weight_base_addr;
-    wire [$clog2(MEM_DEPTH)-1:0]   input_base_addr;
+    wire [7:0] weight_base_addr;
+    wire [7:0]   input_base_addr;
     wire [2:0]           acc_sel_tile;
 
     // ── valid ctrl ───────────────────────────────────────────────
@@ -76,18 +76,11 @@ module top_system #(
     // ── data ─────────────────────────────────────────────────────
     wire signed [ACC_W-1:0]        a_in;
     wire signed [ACC_W-1:0]        w_0, w_1, w_2, w_3;
+    
     wire [$clog2(MEM_DEPTH)-1:0]   w_addr;
-    wire [$clog2(MEM_DEPTH)-1:0]   in_addr;
     wire [N_MACS-1:0]              clear;
     assign clear = {N_MACS{clear_all}};
 
-    // ── dual-port weight BRAM ────────────────────────────────────
-    wire [$clog2(MEM_DEPTH)-1:0]   weight_bram_addr_a;
-    wire [$clog2(MEM_DEPTH)-1:0]   weight_bram_addr_b;
-    wire                           weight_bram_en_a;
-    wire                           weight_bram_en_b;
-    wire [ACC_W-1:0]               weight_bram_dout_a;
-    wire [ACC_W-1:0]               weight_bram_dout_b;
 
     top_ctrl u_top_ctrl (
         .clk                    (clk),
@@ -118,7 +111,7 @@ module top_system #(
         .weight_base_addr (weight_base_addr),
         .input_base_addr (input_base_addr),
         .acc_sel_tile   (acc_sel_tile)
-    )
+    );
 
     
     // Valid pipeline control
@@ -167,10 +160,10 @@ module top_system #(
     ) u_weight_mem_if (
         .clk         (clk),
         .rst         (rst),
-        .load        (load_weights),
 
-        .base_addr     (weight_base_addr),
-        .layer_sel     (mode),
+
+        .weight_base_addr     (weight_base_addr),
+        .mode     (mode),
 
         // BRAM interface - directly to top ports
         .addr_a   (weight_bram_addr_a),
@@ -182,11 +175,10 @@ module top_system #(
         .dout_a (weight_bram_dout_a),
         .dout_b (weight_bram_dout_b),
 
-        .w_addr      (w_addr),
-        .w_0         (w_0),
-        .w_1         (w_1),
-        .w_2         (w_2),
-        .w_3         (w_3),
+        .w0         (w_0),
+        .w1         (w_1),
+        .w2         (w_2),
+        .w3         (w_3),
 
         .valid  (load_ready),
         .done()

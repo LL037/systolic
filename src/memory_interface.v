@@ -111,21 +111,21 @@ module weight_mem_if #(
     input  wire                           clk,
     input  wire                           rst,
 
-    input  wire [$clog2(MEM_DEPTH)-1:0]   weight_base_addr,
+    input  wire [7:0]   weight_base_addr,
     input  wire [2:0]                     mode,   // 3'b001=load(diagonal)  3'b010=layer(direct)
 
     // dual-port BRAM (1-cycle read latency)
-    output reg  [$clog2(MEM_DEPTH)-1:0]   addr_a,
-    output reg  [$clog2(MEM_DEPTH)-1:0]   addr_b,
+    output reg  [7:0]   addr_a,
+    output reg  [7:0]   addr_b,
     output wire                           en_a,
     output wire                           en_b,
-    input  wire [DATA_W-1:0]              dout_a,
-    input  wire [DATA_W-1:0]              dout_b,
+    input  wire [63:0]              dout_a,
+    input  wire [63:0]              dout_b,
 
-    output reg  [DATA_W-1:0]              w0,   // load: leads
-    output reg  [DATA_W-1:0]              w1,   // load: trails 1 cycle
-    output reg  [DATA_W-1:0]              w2,   // layer: port A
-    output reg  [DATA_W-1:0]              w3,   // layer: port B
+    output reg  [15:0]              w0,   // load: leads
+    output reg  [15:0]              w1,   // load: trails 1 cycle
+    output reg  [15:0]              w2,   // layer: port A
+    output reg  [15:0]              w3,   // layer: port B
 
     output reg                            valid,
     output reg                            done
