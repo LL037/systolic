@@ -1,105 +1,80 @@
+// ============================================================
+// input_mem_if.v
+//
+// N words from BRAM (registered output, 1-cycle latency).
+// First valid + a_out appears ONE clock after start.
+//
+// Timing (N=4, base=A):
+//   edge:       T0     T1     T2     T3     T4     T5
+//   start:       1      0      -      -      -      -
+//   bram_addr:  [A]   [A+1]  [A+2]  [A+3]   -      -
+//   bram_en:     1      1      1      1       0      0
+//   bram_dout:   x     d[0]  d[1]   d[2]   d[3]    -
+//   valid:       0      1      1      1      1       0
+//   a_out:       x     d[0]  d[1]   d[2]   d[3]    -
+//   done:        0      0      0      0      1       0
+// ============================================================
+
 module input_mem_if #(
-    parameter integer N         = 4,
-    parameter integer DATA_W    = 16,
-    parameter integer BRAM_W    = 16,
-    parameter integer MEM_DEPTH = 256
+    parameter integer N      = 4,
+    parameter integer DATA_W = 16,
+    parameter integer ADDR_W = 8
 )(
-    input  wire                 clk,
-    input  wire                 rst,
-    input  wire                 load_en,
-    input  wire [7:0]           base_addr,   // FIXED: 8-bit BRAM address
+    input  wire              clk,
+    input  wire              rst,
+    input  wire              start,
+    input  wire [ADDR_W-1:0] base_addr,
 
-    output reg  [7:0]           bram_addr,   // FIXED: 8-bit BRAM address
-    output wire                 bram_en,
-    input  wire [15:0]          bram_dout,   // FIXED: 16-bit BRAM data out
+    output reg  [ADDR_W-1:0] bram_addr,
+    output reg               bram_en,
+    input  wire [DATA_W-1:0] bram_dout,
 
-    output reg  [DATA_W-1:0]    a_out,
-    output reg                  valid,
-    output reg                  done
+    output wire [DATA_W-1:0] a_out,
+    output wire              valid,
+    output wire              done
 );
-    // Sanity (optional): BRAM_W must match dout width and be divisible by DATA_W
-    localparam integer WORDS_PER_ROW = BRAM_W / DATA_W;  // for 16/8 => 2
+    // addr_cnt: 0=idle, 1..N = addresses sent so far
+    // data_cnt: mirrors addr_cnt delayed by 1 cycle (= bram latency)
+    localparam CNT_W = $clog2(N+1);
 
-    assign bram_en = ~rst;
+    reg [CNT_W-1:0] addr_cnt;   // number of addresses dispatched
+    reg [CNT_W-1:0] data_cnt;   // lags addr_cnt by 1
 
-    localparam IDLE   = 3'd0;
-    localparam WAIT1  = 3'd1;
-    localparam WAIT2  = 3'd2;
-    localparam STREAM = 3'd3;
-
-    reg [2:0] state;
-
-    reg [$clog2(N)-1:0]                 word_cnt;
-    reg [$clog2(WORDS_PER_ROW)-1:0]     slot;
-    reg [BRAM_W-1:0]                    row_buf;
-
-    // Optional: flush on base_addr change (uncomment if needed)
-    // reg [7:0] base_addr_q;
-
-    always @(posedge clk or posedge rst) begin
+    always @(posedge clk) begin
         if (rst) begin
-            state     <= IDLE;
-            word_cnt  <= 0;
-            slot      <= 0;
-            bram_addr <= 8'd0;
-            row_buf   <= {BRAM_W{1'b0}};
-            a_out     <= {DATA_W{1'b0}};
-            valid     <= 1'b0;
-            done      <= 1'b0;
-            // base_addr_q <= 8'd0;
+            addr_cnt  <= {CNT_W{1'b0}};
+            data_cnt  <= {CNT_W{1'b0}};
+            bram_addr <= {ADDR_W{1'b0}};
+            bram_en   <= 1'b0;
         end else begin
-            valid <= 1'b0;
-            done  <= 1'b0;
+            // data_cnt always lags addr_cnt by 1
+            data_cnt <= addr_cnt;
 
-            // Optional flush logic
-            // if (base_addr != base_addr_q) begin
-            //     base_addr_q <= base_addr;
-            //     state       <= IDLE;
-            //     word_cnt    <= 0;
-            //     slot        <= 0;
-            // end
-
-            case (state)
-                IDLE: begin
-                    if (load_en) begin
-                        word_cnt  <= 0;
-                        slot      <= 0;
-                        bram_addr <= base_addr;
-                        state     <= WAIT1;
-                    end
+            if (addr_cnt == 0) begin
+                if (start) begin
+                    bram_addr <= base_addr;
+                    bram_en   <= 1'b1;
+                    addr_cnt  <= {{(CNT_W-1){1'b0}}, 1'b1};
                 end
-
-                WAIT1: state <= WAIT2;
-
-                WAIT2: begin
-                    row_buf <= bram_dout;   // 16-bit into row_buf (BRAM_W=16)
-                    slot    <= 0;
-                    state   <= STREAM;
-                end
-
-                STREAM: begin
-                    a_out <= row_buf[slot*DATA_W +: DATA_W];
-                    valid <= 1'b1;
-
-                    if (word_cnt == N - 1) begin
-                        done  <= 1'b1;
-                        state <= IDLE;
-                    end else begin
-                        word_cnt <= word_cnt + 1;
-
-                        if (slot == WORDS_PER_ROW - 1) begin
-                            bram_addr <= bram_addr + 1;
-                            state     <= WAIT1;
-                        end else begin
-                            slot <= slot + 1;
-                        end
-                    end
-                end
-
-                default: state <= IDLE;
-            endcase
+            end else if (addr_cnt < N) begin
+                // send next address
+                bram_addr <= base_addr + {{(ADDR_W-CNT_W){1'b0}}, addr_cnt};
+                bram_en   <= 1'b1;
+                addr_cnt  <= addr_cnt + 1'b1;
+            end else begin
+                // addr_cnt == N: all addresses sent
+                bram_en   <= 1'b0;
+                addr_cnt  <= {CNT_W{1'b0}};  // reset for next start
+            end
         end
     end
+
+    // valid: bram_dout is meaningful when data_cnt = 1..N
+    //   data_cnt=1 means addr_cnt was 1 last cycle → addr[0] was sent → d[0] ready
+    assign valid = (data_cnt >= 1) && (data_cnt <= N);
+    assign a_out = bram_dout;
+    assign done  = (data_cnt == N);
+
 endmodule
 
 
