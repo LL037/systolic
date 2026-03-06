@@ -88,7 +88,7 @@ module top_ctrl #(
                 end
 
                 S_WAIT_LOAD_OFF: begin
-                    mode <= MODE_LOAD;
+                    mode <= MODE_IDLE;
                     if (!valid_ctrl_busy) begin
                         state <= S_DECIDE;
                     end
@@ -201,43 +201,40 @@ module valid_pipeline_ctrl #(
     input  wire        rst,
     input  wire        start,
     input  wire        load_ready,
-
-    output reg  [11:0] valid_ctrl,
+    output wire [11:0] valid_ctrl,
     output reg         busy
 );
-    // valid_ctrl bit mapping (layer1 only):
-    //   [0] = mac0 input valid  (cycles 0..N-1)
-    //   [3] = mac1 input valid  (cycles 1..N)
-
-    localparam integer CNT_MAX = N;   // N+1 cycles total (0..N)
+    localparam integer CNT_MAX = N;
 
     reg [$clog2(N+2)-1:0] cnt;
     reg                    running;
     reg                    armed;
 
+    // --- combinational output: zero latency from state ---
+    wire launching = armed && load_ready;
+    wire active    = running || launching;
+
+    assign valid_ctrl[0]    = active && (cnt < N);
+    assign valid_ctrl[3]    = active && (cnt > 0);
+    assign valid_ctrl[2:1]  = 2'b0;
+    assign valid_ctrl[11:4] = 8'b0;
+
+    // --- sequential state ---
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            cnt        <= 0;
-            running    <= 1'b0;
-            armed      <= 1'b0;
-            valid_ctrl <= 12'b0;
-            busy       <= 1'b0;
+            cnt     <= 0;
+            running <= 1'b0;
+            armed   <= 1'b0;
+            busy    <= 1'b0;
         end else begin
-            valid_ctrl <= 12'b0;
-
             if (start)
                 armed <= 1'b1;
 
-            if (armed && load_ready) begin
+            if (launching) begin
                 armed   <= 1'b0;
                 running <= 1'b1;
-                cnt     <= 0;
-            end
-
-            if (running) begin
-                valid_ctrl[0] <= (cnt < N);   // mac0: cycles 0..N-1
-                valid_ctrl[3] <= (cnt > 0);   // mac1: cycles 1..N
-
+                cnt     <= 1;
+            end else if (running) begin
                 if (cnt == CNT_MAX) begin
                     running <= 1'b0;
                     cnt     <= 0;
@@ -246,10 +243,9 @@ module valid_pipeline_ctrl #(
                 end
             end
 
-            busy <= running || armed;
+            busy <= running || armed || launching;
         end
     end
-
 endmodule
 
 

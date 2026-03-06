@@ -22,7 +22,7 @@ module input_mem_if #(
 )(
     input  wire              clk,
     input  wire              rst,
-    input  wire              start,
+    input  wire              load_en,
     input  wire [ADDR_W-1:0] base_addr,
 
     output reg  [ADDR_W-1:0] bram_addr,
@@ -51,7 +51,7 @@ module input_mem_if #(
             data_cnt <= addr_cnt;
 
             if (addr_cnt == 0) begin
-                if (start) begin
+                if (load_en) begin
                     bram_addr <= base_addr;
                     bram_en   <= 1'b1;
                     addr_cnt  <= {{(CNT_W-1){1'b0}}, 1'b1};
