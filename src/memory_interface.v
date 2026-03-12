@@ -97,37 +97,39 @@ module weight_mem_if #(
     input  wire [63:0]              dout_a,
     input  wire [63:0]              dout_b,
 
-    output reg  [15:0]              w0,   // load: leads
-    output reg  [15:0]              w1,   // load: trails 1 cycle
+    output reg  [15:0]              w0,   // load: row 0 (leads)
+    output reg  [15:0]              w1,   // load: row 1 (trails 1 cycle)
     output reg  [15:0]              w2,   // layer: port A
     output reg  [15:0]              w3,   // layer: port B
 
     output reg                            valid,
     output reg                            done
 );
-    localparam MODE_LOAD  = 3'b001;   // diagonal, w0/w1
+    localparam MODE_LOAD  = 3'b001;   // diagonal skew, w0/w1
     localparam MODE_LAYER = 3'b010;   // direct dual-port, w2/w3
 
     localparam IDLE   = 2'd0;
     localparam FETCH  = 2'd1;   // wait 1 cycle for BRAM latency
     localparam STREAM = 2'd2;
-    localparam DRAIN  = 2'd3;   // mode load only: flush last w1
+    localparam DRAIN  = 2'd3;   // mode load: flush last w1
 
     reg [1:0]                   state;
     reg [$clog2(N+1)-1:0]       cnt;
     reg [2:0]                   mode_lat;
-    reg [DATA_W-1:0]            w0_prev;
+
+    // row-1 base address (row 0 base + N)
+    reg [7:0]                   row1_base;
 
     assign en_a = ~rst;
     assign en_b = ~rst;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            state    <= IDLE;
-            cnt      <= 0;
-            mode_lat <= 0;
-            w0_prev  <= 0;
-            addr_a   <= 0; addr_b <= 0;
+            state     <= IDLE;
+            cnt       <= 0;
+            mode_lat  <= 0;
+            row1_base <= 0;
+            addr_a    <= 0; addr_b <= 0;
             w0<=0; w1<=0; w2<=0; w3<=0;
             valid <= 0; done <= 0;
         end else begin
@@ -138,21 +140,31 @@ module weight_mem_if #(
 
                 IDLE: begin
                     if (mode == MODE_LOAD || mode == MODE_LAYER) begin
-                        mode_lat <= mode;
-                        w0_prev  <= 0;
+                        mode_lat  <= mode;
+                        row1_base <= weight_base_addr + N;
                         w0<=0; w1<=0; w2<=0; w3<=0;
-                        cnt      <= 0;
-                        addr_a   <= weight_base_addr;
-                        addr_b   <= weight_base_addr + 1;
-                        state    <= FETCH;
+                        cnt       <= 0;
+
+                        if (mode == MODE_LOAD) begin
+                            // port A → row 0 element 0
+                            // port B → row 1 element 0
+                            addr_a <= weight_base_addr;
+                            addr_b <= weight_base_addr + N;
+                        end else begin
+                            addr_a <= weight_base_addr;
+                            addr_b <= weight_base_addr + 1;
+                        end
+
+                        state <= FETCH;
                     end
                 end
 
-                // absorb 1-cycle BRAM latency, pre-issue second addr
+                // absorb 1-cycle BRAM latency, pre-issue next addresses
                 FETCH: begin
-                    if (mode_lat == MODE_LOAD)
-                        addr_a <= addr_a + 1;
-                    else begin
+                    if (mode_lat == MODE_LOAD) begin
+                        addr_a <= addr_a + 1;   // row 0: prefetch element 1
+                        // addr_b stays at base+N — row 1 lags by 1 cycle
+                    end else begin
                         addr_a <= addr_a + 2;
                         addr_b <= addr_b + 2;
                     end
@@ -161,14 +173,21 @@ module weight_mem_if #(
 
                 STREAM: begin
                     if (mode_lat == MODE_LOAD) begin
-                        // ── diagonal: w0 current, w1 previous ────
-                        w0      <= dout_a;
-                        w1      <= w0_prev;
-                        w0_prev <= dout_a;
-                        valid   <= 1;
+                        // ── diagonal: w0=row0(portA), w1=row1(portB) skewed ──
+                        // cycle 0: w0=x1, w1=0   (row1 data not valid yet — 1-cycle skew)
+                        // cycle 1: w0=x2, w1=x5
+                        // ...
+                        // cycle N-1: w0=xN, w1=x(N+N-1)
+                        // then DRAIN: w0=0, w1=x(2N)
 
-                        if (cnt < N - 1)
+                        w0    <= dout_a;          // row 0 data
+                        w1    <= (cnt == 0) ? 16'd0 : dout_b;  // row 1 skewed: suppress cycle 0
+                        valid <= 1;
+
+                        if (cnt < N - 1) begin
                             addr_a <= addr_a + 1;
+                            addr_b <= addr_b + 1;
+                        end
 
                         if (cnt == N - 1) begin
                             state <= DRAIN;
@@ -195,10 +214,10 @@ module weight_mem_if #(
                     end
                 end
 
-                // mode load only: output final w1
+                // mode load: output final row-1 element
                 DRAIN: begin
                     w0    <= 0;
-                    w1    <= w0_prev;
+                    w1    <= dout_b;   // last row-1 element from port B
                     valid <= 1;
                     done  <= 1;
                     state <= IDLE;
