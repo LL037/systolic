@@ -1,6 +1,7 @@
 module top_system_nn #(
     parameter W      = 8,
     parameter ACC_W  = 16,
+    parameter N = 4,
     parameter N_MACS = 4,
     parameter MEM_DEPTH = 256
 )(
@@ -16,12 +17,12 @@ module top_system_nn #(
    // Weight BRAM - port A
     output wire [7:0]  weight_bram_addr_a,
     output wire                          weight_bram_en_a,
-    input  wire [63:0]              weight_bram_dout_a, // 64-bit 
+    input  wire [15:0]              weight_bram_dout_a, // 16-bit 
 
     // Weight BRAM - port B  
     output wire [7:0]  weight_bram_addr_b,  
     output wire                          weight_bram_en_b,
-    input  wire [63:0]              weight_bram_dout_b, // 64-bit 
+    input  wire [15:0]              weight_bram_dout_b, // 16-bit 
 
     output wire [7:0]  input_bram_addr,
     output wire        input_bram_en,
@@ -53,7 +54,10 @@ module top_system_nn #(
     // ── tile ctrl ────────────────────────────────────────────────
     wire [7:0] weight_base_addr;
     wire [7:0]   input_base_addr;
-    wire [2:0]           acc_sel_tile;
+    wire [2:0]           tile_number; 
+    //assign input_base_addr = tile_number * N + 1; 
+    assign input_base_addr = 8'b00000001; // 固定从0开始读输入，简化设计
+    assign weight_base_addr = tile_number * N; 
 
     // ── valid ctrl ───────────────────────────────────────────────
     wire [11:0]                    valid_ctrl_pipeline;
@@ -69,7 +73,6 @@ module top_system_nn #(
     // ── busy / ready ─────────────────────────────────────────────
     wire                           valid_pipeline_busy;
     wire                           layering_busy;
-    wire                           load_ready;
     wire                           layer_ready;
     assign busy = valid_pipeline_busy | layering_busy;
 
@@ -81,6 +84,23 @@ module top_system_nn #(
     wire [N_MACS-1:0]              clear;
     assign clear = {N_MACS{clear_all}};
 
+    wire input_if_valid;
+    wire weight_if_valid;
+
+
+    // ── prime signals ────────────────────────────────────────────
+    wire prime_input_en;
+    wire prime_weight_en;
+
+    // ── BRAM enable with prime OR ────────────────────────────────
+    wire input_bram_en_raw;    // from input_mem_if
+    wire weight_bram_en_a_raw; // from weight_mem_if
+    wire weight_bram_en_b_raw; // from weight_mem_if
+
+    assign input_bram_en    = input_bram_en_raw    | prime_input_en;
+    assign weight_bram_en_a = weight_bram_en_a_raw | prime_weight_en;
+    assign weight_bram_en_b = weight_bram_en_b_raw | prime_weight_en;
+
 
     top_ctrl u_top_ctrl (
         .clk                    (clk),
@@ -88,30 +108,22 @@ module top_system_nn #(
         .start                  (start),
         .valid_ctrl_busy        (valid_pipeline_busy),
         .layer_ctrl_busy        (layering_busy),
-        .next_tile_ready        (next_tile_ready),
-        .load_tile_done         (load_tile_done),
+        .input_if_valid         (input_if_valid),
+        .weight_if_valid        (weight_if_valid),
 
-
-        .next_tile              (next_tile),
+        .tile_number         (tile_number),
         .mode                   (mode),
         .start_valid_pipeline   (start_valid_pipeline),
         .start_weights          (start_weights),
         .start_layering         (start_layering),
         .start_input            (start_input),
-        .done                   (done)
-    );
+        .done                   (done),
 
-    tile_ctrl u_tile_ctrl (
-        .clk    (clk),
-        .rst    (rst),
-        .next_tile (next_tile),
-
-        .next_tile_ready   (next_tile_ready),
-        .load_tile_done (load_tile_done),
-        .weight_base_addr (weight_base_addr),
-        .input_base_addr (input_base_addr),
-        .acc_sel_tile   (acc_sel_tile)
+        .prime_input_en     (prime_input_en),
+        .prime_weight_en    (prime_weight_en)
     );
+   
+
 
     
     // Valid pipeline control
@@ -119,7 +131,7 @@ module top_system_nn #(
         .clk        (clk),
         .rst        (rst),
         .start      (start_valid_pipeline),
-        .load_ready (load_ready),
+        .load_ready (weight_if_valid),
 
         .valid_ctrl (valid_ctrl_pipeline),
         .busy       (valid_pipeline_busy)
@@ -169,8 +181,8 @@ module top_system_nn #(
         .addr_a   (weight_bram_addr_a),
         .addr_b     (weight_bram_addr_b),
 
-        .en_a   (weight_bram_en_a),
-        .en_b   (weight_bram_en_b),
+        .en_a   (weight_bram_en_a_raw),
+        .en_b   (weight_bram_en_b_raw),
 
         .dout_a (weight_bram_dout_a),
         .dout_b (weight_bram_dout_b),
@@ -179,8 +191,9 @@ module top_system_nn #(
         .w1         (w_1),
         .w2         (w_2),
         .w3         (w_3),
+        
 
-        .valid  (load_ready),
+        .valid  (weight_if_valid),
         .done()
 
     );
@@ -197,9 +210,10 @@ module top_system_nn #(
 
         // BRAM interface - directly to top ports
         .bram_addr (input_bram_addr),
-        .bram_en   (input_bram_en),
+        .bram_en   (input_bram_en_raw),
         .bram_dout (input_bram_dout),
-        .a_out     (a_in)
+        .a_out     (a_in),
+        .valid      (input_if_valid)
     );
 
 
@@ -220,7 +234,7 @@ module top_system_nn #(
         .valid_weight_in (weight_ctrl),
         .clear      (clear),
 
-        .acc_sel (acc_sel_tile),
+        .acc_sel (tile_number),
         
         // Data inputs
         .a_in       (a_in),
