@@ -70,32 +70,64 @@ module input_mem_if #(
 
 endmodule
 
-
+// =============================================================
+//  weight_mem_if.v  —  parameterized weight BRAM reader
+//
+//  Internal logic: IDENTICAL to original (IDLE→FETCH→STREAM→DRAIN).
+//  What changed:
+//    - w0, w1, w2, w3 hardcoded ports → flat bus w_out_a / w_out_b
+//    - N parameter controls stream depth (= matrix dim / num_ports)
+//    - MODE_LOAD  : addr_a stride 1, addr_b stride 1 offset +N
+//    - MODE_LAYER : addr_a stride 2, addr_b stride 2 offset +1
+//
+//  Output per cycle (always 2 values, one per BRAM port):
+//    w_out_a [DATA_W-1:0]   — from port A  (was w0 in LOAD, w2 in LAYER)
+//    w_out_b [DATA_W-1:0]   — from port B  (was w1 in LOAD, w3 in LAYER)
+//
+//  For N_COLS MACs per row, instantiate N_COLS/2 weight_mem_if
+//  instances (one per MAC pair), each with its own BRAM port pair.
+//  Each instance handles one pair of adjacent MACs:
+//    inst k → MAC[row, 2k] gets w_out_a, MAC[row, 2k+1] gets w_out_b
+//
+//  BRAM layout (software responsibility):
+//    MODE_LOAD  tile k (base B):
+//      addr_a: B, B+1, ..., B+N-1         → MAC[0, 2k]   weights
+//      addr_b: B+N, B+N+1, ..., B+2N-1    → MAC[0, 2k+1] weights
+//
+//    MODE_LAYER tile k (base B):
+//      addr_a: B, B+2, B+4, ..., B+2(N-1) → MAC[i, 2k]   weights (stride 2)
+//      addr_b: B+1, B+3, ..., B+2N-1      → MAC[i, 2k+1] weights (stride 2)
+//
+//  ran flag: resets when mode returns to MODE_IDLE.
+//  Ensures no re-trigger within the same mode assertion.
+// =============================================================
 module weight_mem_if #(
-    parameter N         = 4,
+    parameter N         = 4,     // stream depth: number of output cycles per tile
     parameter DATA_W    = 16,
     parameter MEM_DEPTH = 256
 )(
-    input  wire                           clk,
-    input  wire                           rst,
+    input  wire                   clk,
+    input  wire                   rst,
 
-    input  wire [7:0]                     weight_base_addr,
-    input  wire [2:0]                     mode,
+    input  wire [7:0]             weight_base_addr,
+    input  wire [2:0]             mode,
 
-    output reg  [7:0]                     addr_a,
-    output reg  [7:0]                     addr_b,
-    output wire                           en_a,
-    output wire                           en_b,
-    input  wire [DATA_W-1:0]              dout_a,
-    input  wire [DATA_W-1:0]              dout_b,
+    // BRAM dual-port interface
+    output reg  [7:0]             addr_a,
+    output reg  [7:0]             addr_b,
+    output wire                   en_a,
+    output wire                   en_b,
+    input  wire [DATA_W-1:0]      dout_a,
+    input  wire [DATA_W-1:0]      dout_b,
 
-    output reg  [DATA_W-1:0]              w0,
-    output reg  [DATA_W-1:0]              w1,
-    output reg  [DATA_W-1:0]              w2,
-    output reg  [DATA_W-1:0]              w3,
+    // ── weight outputs ────────────────────────────────────────
+    // w_out_a: from port A — feeds the even MAC in the pair
+    // w_out_b: from port B — feeds the odd  MAC in the pair
+    output reg  [DATA_W-1:0]      w_out_a,
+    output reg  [DATA_W-1:0]      w_out_b,
 
-    output reg                            valid,
-    output reg                            done
+    output reg                    valid,
+    output reg                    done
 );
 
     localparam MODE_IDLE  = 3'b000;
@@ -111,37 +143,31 @@ module weight_mem_if #(
     reg [$clog2(N+1)-1:0]   cnt;
     reg [2:0]               mode_lat;
     reg                     fetch_cnt;
-
-    // ── 防重触发：ran=1 表示已跑过，mode 回 IDLE 时清除 ─────
     reg                     ran;
 
     assign en_a = ~rst;
     assign en_b = ~rst;
 
     // ─────────────────────────────────────────────────────────
-    // MODE_LOAD timing (N=4, base=B), 2-cycle BRAM latency:
+    //  Timing diagrams (identical to original, parameterized on N):
     //
-    //  cycle:  IDLE   F1     F2      S(0)   S(1)   S(2)   S(3)  DRAIN
-    //  addr_a: B      B+1    B+2     B+3    -      -      -      -
-    //  addr_b: -      -      B+N     B+N+1  B+N+2  B+N+3  -      -
-    //          ──────── 2-cycle BRAM latency ────────
-    //  dout_a:                       d[B]   d[B+1] d[B+2] d[B+3] -
-    //  dout_b:                       -      d[B+N] ...           d[B+N+3]
-    //  w0:                           d[B]   d[B+1] d[B+2] d[B+3] 0
-    //  w1:                           0      d[B+N] ...           d[B+N+3]
-    //  valid:                        1      1      1      1      1
-    //  done:                         0      0      0      0      1
+    //  MODE_LOAD (base=B, 2-cycle BRAM latency):
+    //   cycle: IDLE  F1     F2      S(0)   S(1)  ... S(N-1)  DRAIN
+    //   addr_a: B    B+1    B+2    B+3     -     ...  -        -
+    //   addr_b: -    -      B+N    B+N+1  B+N+2 ... B+N+N-1   -
+    //   w_out_a:                   d[B]  d[B+1] ... d[B+N-1]  0
+    //   w_out_b:                   0     d[B+N] ... d[B+2N-2] d[B+2N-1]
+    //   valid:                     1      1     ...  1         1
+    //   done:                      0      0     ...  0         1
     //
-    // MODE_LAYER timing (N=4, base=B):
-    //
-    //  cycle:  IDLE   F1     F2      S(0)   S(1)   S(2)   S(3)
-    //  addr_a: B      B+2    B+4     B+6    -      -      -
-    //  addr_b: B+1    B+3    B+5     B+7    -      -      -
-    //          ──────── 2-cycle BRAM latency ────────
-    //  dout_a:                       d[B]   d[B+2] d[B+4] d[B+6]
-    //  dout_b:                       d[B+1] d[B+3] d[B+5] d[B+7]
-    //  w2/w3:                        valid  valid  valid  valid
-    //  done:                         0      0      0      1
+    //  MODE_LAYER (base=B, stride 2):
+    //   cycle: IDLE  F1     F2      S(0)   S(1)  ... S(N-1)
+    //   addr_a: B    B+2    B+4    B+6     -     ...  -
+    //   addr_b: B+1  B+3    B+5    B+7     -     ...  -
+    //   w_out_a:                   d[B]  d[B+2] ... d[B+2(N-1)]
+    //   w_out_b:                  d[B+1] d[B+3] ... d[B+2N-1]
+    //   valid:                     1      1     ...  1
+    //   done:                      0      0     ...  1
     // ─────────────────────────────────────────────────────────
 
     always @(posedge clk or posedge rst) begin
@@ -152,7 +178,8 @@ module weight_mem_if #(
             mode_lat  <= 0;
             addr_a    <= 0;
             addr_b    <= 0;
-            w0 <= 0; w1 <= 0; w2 <= 0; w3 <= 0;
+            w_out_a   <= 0;
+            w_out_b   <= 0;
             valid     <= 0;
             done      <= 0;
             ran       <= 0;
@@ -160,24 +187,26 @@ module weight_mem_if #(
             valid <= 0;
             done  <= 0;
 
-            // ── ran 清除：mode 回到 IDLE 时允许下次触发 ──────
+            // ran clears when mode returns to IDLE
             if (mode == MODE_IDLE)
                 ran <= 0;
 
             case (state)
 
+                // ── IDLE: wait for mode trigger ───────────────
                 IDLE: begin
-                    // ◀ 关键：加 !ran 条件，跑完一次后不再重触发
                     if (!ran && (mode == MODE_LOAD || mode == MODE_LAYER)) begin
                         mode_lat  <= mode;
                         cnt       <= 0;
                         fetch_cnt <= 0;
-                        ran       <= 1;          // ◀ 标记已触发
-                        w0 <= 0; w1 <= 0; w2 <= 0; w3 <= 0;
+                        ran       <= 1;
+                        w_out_a   <= 0;
+                        w_out_b   <= 0;
 
                         if (mode == MODE_LOAD) begin
                             addr_a <= weight_base_addr;
                         end else begin
+                            // MODE_LAYER: interleaved pairs
                             addr_a <= weight_base_addr;
                             addr_b <= weight_base_addr + 1;
                         end
@@ -186,6 +215,7 @@ module weight_mem_if #(
                     end
                 end
 
+                // ── FETCH: 2-cycle BRAM pipeline fill ─────────
                 FETCH: begin
                     if (mode_lat == MODE_LOAD) begin
                         if (fetch_cnt == 0) begin
@@ -193,11 +223,12 @@ module weight_mem_if #(
                             fetch_cnt <= 1;
                         end else begin
                             addr_a    <= addr_a + 1;
-                            addr_b    <= weight_base_addr + N;
+                            addr_b    <= weight_base_addr + N[7:0];
                             fetch_cnt <= 0;
                             state     <= STREAM;
                         end
                     end else begin
+                        // MODE_LAYER stride-2
                         if (fetch_cnt == 0) begin
                             addr_a    <= addr_a + 2;
                             addr_b    <= addr_b + 2;
@@ -211,11 +242,12 @@ module weight_mem_if #(
                     end
                 end
 
+                // ── STREAM: output valid weights ──────────────
                 STREAM: begin
                     if (mode_lat == MODE_LOAD) begin
-                        w0    <= dout_a;
-                        w1    <= (cnt == 0) ? {DATA_W{1'b0}} : dout_b;
-                        valid <= 1;
+                        w_out_a <= dout_a;
+                        w_out_b <= (cnt == 0) ? {DATA_W{1'b0}} : dout_b;
+                        valid   <= 1;
 
                         if (cnt < N - 1) begin
                             addr_a <= addr_a + 1;
@@ -230,9 +262,10 @@ module weight_mem_if #(
                         end
 
                     end else begin
-                        w2    <= dout_a;
-                        w3    <= dout_b;
-                        valid <= 1;
+                        // MODE_LAYER
+                        w_out_a <= dout_a;
+                        w_out_b <= dout_b;
+                        valid   <= 1;
 
                         if (cnt < N - 1) begin
                             addr_a <= addr_a + 2;
@@ -248,12 +281,13 @@ module weight_mem_if #(
                     end
                 end
 
+                // ── DRAIN: flush last port-B value (LOAD only)─
                 DRAIN: begin
-                    w0    <= 0;
-                    w1    <= dout_b;
-                    valid <= 1;
-                    done  <= 1;
-                    state <= IDLE;
+                    w_out_a <= 0;
+                    w_out_b <= dout_b;
+                    valid   <= 1;
+                    done    <= 1;
+                    state   <= IDLE;
                 end
 
             endcase
